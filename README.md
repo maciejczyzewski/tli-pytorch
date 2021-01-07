@@ -2,6 +2,11 @@
 
 "Transfer Learning Between Different Architectures Via Weights Injection"
 
+<p float="left">
+	<img src="./paper/figures/gh_results.png" height="200px" />
+	<img src="./paper/figures/gh_injection.png" height="200px" />
+</p>
+
 ## Introduction
 
 This work presents a naive algorithm for parameter transfer between different architectures with a computationally cheap injection technique (which does not require data).
@@ -22,7 +27,7 @@ from tli import apply_tli
 apply_tli(model, teacher='tf_efficientnet_b0')
 ```
 
-## Result replication
+## Results replication
 
 **WARNING**: final version of the algorithm are still being developed.
 
