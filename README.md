@@ -3,8 +3,8 @@
 "Transfer Learning Between Different Architectures Via Weights Injection"
 
 <p float="left">
-	<img src="./paper/figures/gh_results.png" height="200px" />
-	<img src="./paper/figures/gh_injection.png" height="200px" />
+	<img src="./paper/figures/gh_results.png" height="300px" />
+	<img src="./paper/figures/gh_injection.png" height="300px" />
 </p>
 
 ## Introduction
