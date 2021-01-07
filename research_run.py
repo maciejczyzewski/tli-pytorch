@@ -67,7 +67,7 @@ def call(cmd):
 
 
 call("mkdir -p tmp")
-call("mkdir -p figures")
+call("mkdir -p results")
 
 SEED = 666
 set_seed(SEED)
