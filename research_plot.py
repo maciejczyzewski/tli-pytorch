@@ -107,7 +107,6 @@ def plot_key(
     plt.ylabel(ylabel)
     plt.xlabel(xlabel)
 
-
     handles, labels = ax.get_legend_handles_labels()
     labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
 

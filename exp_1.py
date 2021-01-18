@@ -1,6 +1,6 @@
 from research_datasets import DATASET_CIFAR100
 from research_models import get_model_timm
-from research_plot import plot_key, plot_abstract
+from research_plot import plot_abstract, plot_key
 from research_run import (apply_kaiming_uniform, apply_xavier_normal,
                           run_experiment)
 from research_utils import __lazy_init

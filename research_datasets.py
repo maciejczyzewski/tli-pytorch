@@ -6,6 +6,7 @@ from torchvision import datasets, transforms
 
 from research_utils import __lazy_init
 
+
 # FIXME: fast simd-pillow + to tensor? and `jit`
 def __faster_getitem(self, index: int) -> Tuple[Any, Any]:
     img, target = self.data[index], int(self.targets[index])
