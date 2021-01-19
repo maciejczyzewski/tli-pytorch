@@ -144,7 +144,14 @@ def fn_inject(from_tensor, to_tensor):
 ################################################################################
 ################################################################################
 
-# DEBUG: efficientnet_lite0 vs efficientnet_lite1
+# FIXME: ladnie podzielic na "matching" / "injection"
+
+##########################################################
+# --> fn_stats() -> [abs.mean(), rozklad()]
+# --> fn_kullbeck(stats1, stats2) -> [0, 1]
+# FIXME: pretty list of modules? --> fn_stats
+#                                    if GT -> fn_kullbeck
+##########################################################
 
 # DIST: https://github.com/timtadh/zhang-shasha
 # "graph matching" https://arxiv.org/pdf/1904.12787.pdf
@@ -154,7 +161,6 @@ def fn_inject(from_tensor, to_tensor):
 ###############
 # https://github.com/benedekrozemberczki/awesome-graph-classification
 # WeisfeilerLehman ??????
-
 
 ################# BEST ###################
 ## https://karateclub.readthedocs.io/en/latest/notes/introduction.html
@@ -406,7 +412,7 @@ class TLIConfig(object):
 
 from karateclub import NetMF, FeatherNode
 
-embedding_dim = 5 # best: 9?
+embedding_dim = 5 # FIXME: was 9, how to find?
 CONFIG = TLIConfig({
     "node_embedding_attributed": \
         FeatherNode(eval_points=3, order=3, reduction_dimensions=32),
@@ -490,7 +496,7 @@ def F_architecture(graph):
 def __q(a, b):
     return np.concatenate((a, b), axis=0)
 
-# FIXME: move `k` to CONFIG dataset
+# FIXME: move `k` to CONFIG dataset / gen_dataset / `self-learn`
 def gen_dataset(graph, T, P, S, N, k=10):
     X, y = [], []
 
@@ -502,7 +508,7 @@ def gen_dataset(graph, T, P, S, N, k=10):
             score *= min(x / y, y / x)
         return score
 
-    # FIXME: move to encoder settings?
+    # FIXME: move to encoder settings? / encoder definition
     for idx, node in graph.nodes.items():
         #if node.type != "W":  # FIXME: is it good?
         #    continue
@@ -571,18 +577,18 @@ def gen_dataset(graph, T, P, S, N, k=10):
                 )
 
         # === CASE 4: (W, F) -> 0
-        # for _ in range(k):
-        #     r_idx = None
-        #     for _ in range(len(N)):
-        #         r_idx = random.choice(list(graph.nodes.keys()))
-        #         if graph.nodes[r_idx].type == "F":
-        #             break
-        #     r_cluster_idx = graph.nodes[r_idx].cluster_idx
-        #     if idx == r_idx:
-        #         continue
-        #     q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
-        #     X.append(__q(q_src, q_dst))
-        #     y.append(0)
+        for _ in range(k):
+            r_idx = None
+            for _ in range(len(N)):
+                r_idx = random.choice(list(graph.nodes.keys()))
+                if graph.nodes[r_idx].type == "F":
+                    break
+            r_cluster_idx = graph.nodes[r_idx].cluster_idx
+            if idx == r_idx:
+                continue
+            q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
+            X.append(__q(q_src, q_dst))
+            y.append(0)
 
     print(len(y))
 
@@ -772,7 +778,7 @@ def transfer(model_src, model_dst, debug=False):
     # ----> MATRIX???
 
     # matching if provided map
-    return None
+    return remap
 
 
 ################################################################################
@@ -807,15 +813,6 @@ class Cluster:
         self.cluster_idx = 0
         self.nodes = []
         self.edges = []
-
-
-def resize_graph(dot, size_per_element=0.15, min_size=12):
-    num_rows = len(dot.body)
-    content_size = num_rows * size_per_element
-    size = max(min_size, content_size)
-    size_str = str(size) + "," + str(size)
-    dot.graph_attr.update(size=size_str)
-    return size
 
 
 def make_graph(var, params=None) -> Graph:
@@ -977,6 +974,19 @@ def make_clusters(graph):
     return cluster_map, cluster_links
 
 
+def get_graph(model, input=None):
+    # FIXME: (automatic) find `input` size (just arr?) / (32, 1, 31, 31)
+    input_shape = input if input else (3, 32, 32)
+    x = torch.randn(32, *input_shape)
+    graph = make_graph(model(x), params=dict(model.named_parameters()))
+    return graph
+
+
+################################################################################
+# Visualization
+################################################################################
+
+
 def make_dot(graph, ver=0, prefix="", rankdir="TB"):
     graph_idx = id(graph)
 
@@ -1002,7 +1012,7 @@ def make_dot(graph, ver=0, prefix="", rankdir="TB"):
     )
 
     print(f"graph_idx={graph_idx}")
-    graph_name = f"cluster_{graph_idx}"  # if rankdir == "TB" else str(graph_idx)
+    graph_name = f"cluster_{graph_idx}" # if rankdir == "TB" else str(graph_idx)
     dot = Digraph(name=graph_name, node_attr=node_attr, graph_attr=graph_attr)
 
     cluster_map, cluster_links = graph.cluster_map, graph.cluster_links
@@ -1070,7 +1080,8 @@ def make_dot(graph, ver=0, prefix="", rankdir="TB"):
     if ver == 3:  # pelny przeplyw pomiedzy clustrami
         __show_graph_nodes()
 
-        for edge in cluster_links:  # FIXME: constraint="false", minlen="2"
+        for edge in cluster_links:
+            # FIXME: constraint="false", minlen="2"
             dot.edge(
                 prefix + str(edge[0]),
                 prefix + str(edge[1]),
@@ -1081,27 +1092,20 @@ def make_dot(graph, ver=0, prefix="", rankdir="TB"):
 
         __show_clusters()
 
-    resize_graph(dot)
-    # dot = dot.unflatten(stagger=len(cluster_map.keys()))
+    resize_dot(dot)
     dot.engine = "dot"
     return dot
 
-
-################################################################################
-# Visualization
-################################################################################
-
-
-def get_graph(model, input=None):
-    # FIXME: (automatic) find `input` size (just arr?)
-    input_shape = input if input else (3, 32, 32)
-    x = torch.randn(32, *input_shape) # FIXME: (32, 1, 31, 31)
-    graph = make_graph(model(x), params=dict(model.named_parameters()))
-    return graph
-
+def resize_dot(dot, size_per_element=0.15, min_size=12):
+    num_rows = len(dot.body)
+    content_size = num_rows * size_per_element
+    size = max(min_size, content_size)
+    size_str = str(size) + "," + str(size)
+    dot.graph_attr.update(size=size_str)
+    return size
 
 def show_graph(model, ver=0, path="__tli_debug", input=None):
-    # FIXME: warning about 'torchviz'
+    # FIXME: warning about 'graphviz'
     if not isinstance(model, Graph):
         graph = get_graph(model, input=input)
     else:
@@ -1113,7 +1117,7 @@ def show_graph(model, ver=0, path="__tli_debug", input=None):
 
 
 def show_remap(g1, g2, remap, path="__tli_debug"):
-    # FIXME: show like matrix?
+    # FIXME: show as matrix? A: top-down B: left-right
     dot_g1 = make_dot(g1, ver=3, prefix="src", rankdir="TB")
     dot_g2 = make_dot(g2, ver=3, prefix="dst", rankdir="LR")
 
@@ -1145,54 +1149,19 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
 # Debug
 ################################################################################
 
-# FIXME: ladnie podzielic na "matching" / "injection"
-# FIXME: (2) stopnie <--> cluster to cluster
-#                         tensor to tensor
-
 if __name__ == "__main__":
-    from research_models import get_model_debug
-
-    model_debug = get_model_debug(seed=3, channels=3, classes=10)
-    # model_b0 = get_model_timm("tf_mobilenetv3_small_minimal_100")
-    # model_b0 = get_model_timm("regnetx_002")
-    # model_b0 = get_model_timm("semnasnet_100")
+    if False:
+        from research_models import get_model_debug, ResNetUNet
+        model_debug = get_model_debug(seed=3, channels=3, classes=10)
+        model_unet = ResNetUNet(n_class=6)
 
     # model_A = get_model_timm("regnetx_002")
-    # model_A = get_model_timm("efficientnet_lite0")
-    # model_B = get_model_timm("efficientnet_lite1")
-    # model_A = get_model_timm("efficientnet_b4")
-    # model_B = get_model_timm("efficientnet_b5")
-    # model_A = get_model_timm("tf_mobilenetv3_small_minimal_100")
-    # model_B = get_model_timm("tf_mobilenetv3_small_100")
+    # model_B = get_model_timm("efficientnet_lite0")
 
-    # [best pair for debug]
-    # model_A = ResNetUNet(n_class=6)
     # model_A = get_model_timm("mixnet_s")
     # model_B = get_model_timm("mixnet_m")
 
-    # show_graph(model_A, ver=3, input=(3, 32, 32))
-    # show_graph(model_debug)
-
-    # _, lmap, _ = get_graph(model_A)
-    # pprint(lmap)
-
-    # pmap = get_paths(lmap)
-    # pprint(pmap)
-    ##########################################################
-
-    from research_models import ResNetUNet
-    # model_B = ResNetUNet(n_class=6)
-    #model_A = get_model_timm("mixnet_s")
-    #model_B = get_model_timm("mixnet_m")
-    model_A = get_model_timm("efficientnet_lite1")
-    model_B = get_model_timm("efficientnet_lite0")
-    # model_B = get_model_timm("efficientnet_lite0")
+    model_A = get_model_timm("efficientnet_lite0")
+    model_B = get_model_timm("efficientnet_lite1")
 
     transfer(model_A, model_B, debug=True)  # tli sie
-
-    ##########################################################
-    # --> fn_stats() -> [abs.mean(), rozklad()]
-    # --> fn_kullbeck(stats1, stats2) -> [0, 1]
-    # FIXME: pretty list of modules? --> fn_stats
-    #                                    if GT -> fn_kullbeck
-    ##########################################################
