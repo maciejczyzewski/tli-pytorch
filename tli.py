@@ -598,6 +598,7 @@ def gen_dataset(graph, P, S, N):
 
         # === CASE 1: [self to self] (q_src, q_dst) -> 1
         for _ in range(CONFIG.samples_per_tensor):
+            # FIXME: move to `augmentation`
             p_src = np.array(P[cluster_idx])
             r = np.random.uniform(low=-0.05, high=0.05, size=p_src.shape)
             p_src += r
@@ -1143,6 +1144,7 @@ def show_graph(model, ver=0, path="__tli_debug", input=None):
 
 
 def show_remap(g1, g2, remap, path="__tli_debug"):
+    # FIXME: colors? for each cluster?
     # FIXME: show as matrix? A: top-down B: left-right
     dot_g1 = make_dot(g1, ver=3, prefix="src", rankdir="TB")
     dot_g2 = make_dot(g2, ver=3, prefix="dst", rankdir="LR")
@@ -1158,11 +1160,20 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
     dot.graph_attr.update(compound="True")
     dot.subgraph(dot_g2)
     dot.subgraph(dot_g1)
+    from matplotlib.colors import to_hex
+    import matplotlib.pyplot as plt
+    cmap = plt.get_cmap('rainbow')
+    colors = cmap(np.linspace(0, 1, len(g1.cluster_map.keys())))
+    colors_map = {} # FIXME: sorted?
+    for (cluster_idx, color) in zip(g1.cluster_map.keys(), colors):
+        colors_map[cluster_idx] = color
     for idx_dst, idx_src in remap.items():
+        color = colors_map[g1.nodes[idx_src].cluster_idx]
         dot.edge(
             "src" + str(idx_src),
             "dst" + str(idx_dst),
-            color="red",
+            color=to_hex(color),
+            # color="red",
             constraint="false",
             penwidth="5",
             weight="5",
