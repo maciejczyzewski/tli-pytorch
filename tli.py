@@ -55,7 +55,6 @@ import collections
 import os
 import random
 import sys
-from pprint import pprint
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -63,7 +62,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from graphviz import Digraph
+from karateclub import FeatherNode, NetMF
 from networkx.drawing.nx_agraph import graphviz_layout
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPRegressor
 from torch.autograd import Variable
 
 ################################################################################
@@ -237,6 +240,73 @@ def fn_inject(from_tensor, to_tensor):
 # [XXX] READ THIS: https://markheimann.github.io/projects.html
 # https://sci-hub.se/https://link.springer.com/chapter/10.1007/978-3-319-93040-4_57
 
+# print(clf.predict(predictionData),'\n')
+
+# model = LinearRegression().fit(X_train, y_train)
+# print(model)
+
+# y_hat = downstream_model.predict_proba(X_test)[:, 1]
+# auc = roc_auc_score(y_test, y_hat)
+# print('AUC: {:.4f}'.format(auc))
+
+############################################################################
+
+# FIXME: BIAS / WEIGHT (wildcard)
+# FIXME: split_d for `student` then ensemble for encoder?
+
+# >>> FOR FLOW
+# split_map = split_flow_level(graph_teacher)
+# pprint(split_map)
+# encoded_split_map = encoder_graph(split_map)
+# pprint(encoded_split_map)
+
+# >>> FOR CLUSTERS
+# for cluster_idx in graph_teacher.cluster_map.keys():
+#     split_map = split_cluster_level(graph_teacher, cluster_idx)
+#     pprint(split_map)
+#     print(f"cluster_idx={cluster_idx}")
+#     break
+
+# >>> ALL FOR NODES
+# edges = []
+# for a, dst in graph_teacher.edges.items():
+#     for b in dst:
+#         edges.append([a, b])
+# obj = encoder_nodes(edges)
+# pprint(obj)
+# sys.exit(1)
+
+# >>> FOR NODES IN CLUSTER
+# for cluster_idx in graph_teacher.cluster_map.keys():
+#     obj = encoder_nodes(graph_teacher.cluster_map[cluster_idx].edges)
+#     pprint(obj)
+#     print("="*30)
+
+# FIXME: KD-tree?
+# FIXME: zrobic wizualizacje matchingu!!!!!!!!!!!!!!!!!!!!!!!
+#     (przetestowac laczac ze soba 2 tensory)
+#     (dodatek - wizualizacja dodatkowych `edges` do debugu)
+
+#### [[[[[Fast Network Alignment]]]]]]] / xNetMF
+
+# XXX XXX XXX XXX XXX [READ THIS] #######################
+# https://gemslab.github.io/papers/heimann-2018-regal.pdf
+# https://github.com/GemsLab/REGAL
+#########################################################
+
+# class NodeFeatures
+#   [a] structures_info
+#   [b] graph_info
+#   [c] ???? shape
+# for multiple matches [[ SparseMAP ]]
+# ---> https://arxiv.org/pdf/1802.04223.pdf
+
+# KD-tree? for representations?
+# ----> MATRIX???
+
+# matching if provided map
+
+
 ################################################################################
 ################################################################################
 ################################################################################
@@ -245,6 +315,7 @@ def fn_inject(from_tensor, to_tensor):
 # https://gemslab.github.io/papers/heimann-2018-regal.pdf
 # https://github.com/GemsLab/REGAL
 #########################################################
+
 
 def get_networkx(edges, dag=True):
     if dag:
@@ -313,6 +384,35 @@ def graph_splits(edges, nodes=False):
     return split_map
 
 
+def graph_norm(edges, attr=None):
+    normal_id_map = {}
+    normal_id_iter = [0]
+    rev_mask = {}
+
+    def __for_single(idx):
+        if not idx in normal_id_map:
+            normal_id_map[idx] = normal_id_iter[0]
+            rev_mask[normal_id_iter[0]] = idx
+            normal_id_iter[0] += 1
+
+    random.shuffle(edges)
+
+    for a, b in edges:
+        __for_single(a)
+        __for_single(b)
+
+    norm_edges = []
+    for a, b in edges:
+        norm_edges.append([normal_id_map[a], normal_id_map[b]])
+
+    norm_attr = []
+    if attr:
+        for i in range(len(normal_id_map.keys())):
+            norm_attr.append(attr[rev_mask[i]])
+
+    return norm_edges, rev_mask, norm_attr
+
+
 def utils_map_to_mask(split_map):
     mask, graphs = [], []
     for key, split_dict in split_map.items():
@@ -353,9 +453,10 @@ def split_cluster_level(graph, cluster_idx):
 def encode_graph(split_map):
     mask, graphs = utils_map_to_mask(split_map)
 
+    # FIXME: move to settings
     from karateclub import FeatherGraph
 
-    model = FeatherGraph(order=1, eval_points=5)  # move to settings
+    model = FeatherGraph(order=1, eval_points=5)
     print("FIT")
     model.fit(graphs)
     print("EMBEDDING")
@@ -364,61 +465,41 @@ def encode_graph(split_map):
 
     return utils_mask_to_map(mask, X)
 
+
 ################################################################################
 # TLI
 ################################################################################
 
-def graph_norm(edges, attr=None):
-    normal_id_map = {}
-    normal_id_iter = [0]
-    rev_mask = {}
-
-    def __for_single(idx):
-        if not idx in normal_id_map:
-            normal_id_map[idx] = normal_id_iter[0]
-            rev_mask[normal_id_iter[0]] = idx
-            normal_id_iter[0] += 1
-
-    random.shuffle(edges)
-
-    for a, b in edges:
-        __for_single(a)
-        __for_single(b)
-
-    norm_edges = []
-    for a, b in edges:
-        norm_edges.append([normal_id_map[a], normal_id_map[b]])
-
-    norm_attr = []
-    if attr:
-        for i in range(len(normal_id_map.keys())):
-            norm_attr.append(attr[rev_mask[i]])
-
-    return norm_edges, rev_mask, norm_attr
-
-# FIXME: is this needed?
-class TensorTriplet: # how to move to his? with E_graph
-    def __init__(self):
-        self.p = None
-        self.s = None
-        self.n = None
-
-###############
 
 class TLIConfig(object):
     def __init__(self, adict):
         self.__dict__.update(adict)
 
 
-from karateclub import NetMF, FeatherNode
+embedding_dim = 5  # FIXME: was 9, how to find?
+CONFIG = TLIConfig(
+    {
+        # FIXME: move outsite? --> lazy_load?
+        "node_embedding_attributed": FeatherNode(
+            eval_points=3, order=3, reduction_dimensions=32
+        ),
+        "node_embedding_neighbourhood": NetMF(
+            dimensions=embedding_dim
+        ),  # FIXME: use xNetMF
+        "autoencoder": MLPRegressor(
+            max_iter=50,
+            early_stopping=False,
+            activation="relu",
+            solver="adam",
+            hidden_layer_sizes=(100,),
+            alpha=0.001,
+            verbose=True,
+        ),
+        "test_size": 0.1,  # FIXME: this is important!
+        "samples_per_tensor": 10,
+    }
+)
 
-embedding_dim = 5 # FIXME: was 9, how to find?
-CONFIG = TLIConfig({
-    "node_embedding_attributed": \
-        FeatherNode(eval_points=3, order=3, reduction_dimensions=32),
-    "node_embedding_neighbourhood": NetMF(dimensions=embedding_dim), # FIXME: use xNetMF
-    "test_size": 0.1,
-})
 
 def E_nodes(edges, attr=None):
     norm_graph, rev_mask, norm_attr = graph_norm(edges, attr=attr)
@@ -426,8 +507,11 @@ def E_nodes(edges, attr=None):
     if len(rev_mask) == 0:
         return []
 
-    model = CONFIG.node_embedding_attributed if attr else \
-        CONFIG.node_embedding_neighbourhood
+    model = (
+        CONFIG.node_embedding_attributed
+        if attr
+        else CONFIG.node_embedding_neighbourhood
+    )
 
     graph = get_networkx(norm_graph, dag=False)
     if attr:
@@ -446,17 +530,18 @@ def E_nodes(edges, attr=None):
 
 
 def F_architecture(graph):
+    ### POSITION ENCODING ###
     edges = []
     cluster_feature = {}
     for cluster_idx, cluster in graph.cluster_map.items():
-        cluster_feature[cluster_idx] = [len(cluster.nodes) /
-                                        (1+len(cluster.edges))]
+        cluster_feature[cluster_idx] = [len(cluster.nodes) / (1 + len(cluster.edges))]
     for edge in graph.cluster_links:
         cluster_idx_1 = graph.nodes[edge[0]].cluster_idx
         cluster_idx_2 = graph.nodes[edge[1]].cluster_idx
         edges.append([cluster_idx_1, cluster_idx_2])
     P = E_nodes(edges, attr=cluster_feature)
 
+    ### STRUCTURE ENCODING ###
     S = {}
     for cluster_idx in graph.cluster_map.keys():
         edges = graph.cluster_map[cluster_idx].edges
@@ -466,11 +551,11 @@ def F_architecture(graph):
         else:
             obj = {}
             for idx in graph.cluster_map[cluster_idx].nodes:
-                obj[idx] = np.array([0.0]*embedding_dim) # FIXME: config
+                obj[idx] = np.array([0.0] * embedding_dim)  # FIXME: config
         S.update(obj)
 
-    N = {}
-    # FIXME: move to fn_node_encoder?
+    ### NODE ENCODING ###
+    N = {}  # FIXME: move to fn_node_encoder?
     for idx, node in graph.nodes.items():  # FIXME: better way? [pad len 4]
         _shape4 = nn.ConstantPad1d((0, 4 - len(node.size)), 0.0)(
             torch.tensor(node.size)
@@ -479,25 +564,18 @@ def F_architecture(graph):
         _level_rev = (graph.max_level - node.level) / graph.max_level
         _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
         _type = 0 if ".bias" in node.name else 1
-        N[idx] = shape.tolist() + [_cluster_rev, _level_rev, _type]
-
-    T = {}
-    for idx, node in graph.nodes.items():
-        triplet = TensorTriplet()
-        triplet.p = P[node.cluster_idx]
-        triplet.s = S[idx]
-        triplet.n = N[idx]
-        T[idx] = triplet
+        N[idx] = np.array(shape.tolist() + [_cluster_rev, _level_rev, _type])
 
     print("(encode_graph ended)")
-    return T, P, S, N
+    return P, S, N
 
 
 def __q(a, b):
     return np.concatenate((a, b), axis=0)
 
-# FIXME: move `k` to CONFIG dataset / gen_dataset / `self-learn`
-def gen_dataset(graph, T, P, S, N, k=10):
+
+# gen_dataset / `self-learn`
+def gen_dataset(graph, P, S, N):
     X, y = [], []
 
     def __shape_score(s1, s2):
@@ -510,13 +588,16 @@ def gen_dataset(graph, T, P, S, N, k=10):
 
     # FIXME: move to encoder settings? / encoder definition
     for idx, node in graph.nodes.items():
-        #if node.type != "W":  # FIXME: is it good?
+        # if node.type != "W":  # FIXME: is it good?
         #    continue
 
         cluster_idx = node.cluster_idx
 
+        # FIXME: make it pretty
+        # FIXME: encoder score for [N]
+
         # === CASE 1: [self to self] (q_src, q_dst) -> 1
-        for _ in range(k):
+        for _ in range(CONFIG.samples_per_tensor):
             p_src = np.array(P[cluster_idx])
             r = np.random.uniform(low=-0.05, high=0.05, size=p_src.shape)
             p_src += r
@@ -525,72 +606,93 @@ def gen_dataset(graph, T, P, S, N, k=10):
             s_src += r
             q_src = p_src.tolist() + s_src.tolist() + list(N[idx])
             X.append(__q(q_src, q_src))
-            y.append(1+np.random.uniform(low=-0.05, high=0.05))
+            # FIXME: verify 0.05, 0.05? maybe add as std/var
+            y.append(1 + np.random.uniform(low=-0.05, high=0.05))
 
         q_src = list(P[cluster_idx]) + list(S[idx]) + list(N[idx])
         X.append(__q(q_src, q_src))
         y.append(1)
 
-        # === CASE 2: [same cluster P, W] -> 0.75
-        for _ in range(k):
+        def __get_node(cluster_idx=None, type=None):
             r_idx = None
+            if cluster_idx is not None:
+                nodes = list(graph.cluster_map[cluster_idx].nodes)
+            else:
+                nodes = list(graph.nodes.keys())
             for _ in range(len(N)):
-                r_idx = random.choice(list(graph.cluster_map[cluster_idx].nodes))
-                if graph.nodes[r_idx].type == "W":
+                r_idx = random.choice(nodes)
+                if graph.nodes[r_idx].type == type or not type:
                     break
+            return r_idx
+
+        # === CASE 2: same cluster, W
+        for _ in range(CONFIG.samples_per_tensor):
+            r_idx = __get_node(cluster_idx=cluster_idx, type="W")
+            r_cluster_idx = cluster_idx
             if idx == r_idx:
                 continue
-            q_dst = list(P[cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
+
+            q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
+
+            # N_bonus = 0
+            # N_dist = np.linalg.norm(N[idx] - N[r_idx])
+
+            # if N_dist <= 0.1:
+            #     N_bonus = 0.25
+
             X.append(__q(q_src, q_dst))
             y.append(
+                # N_bonus +
                 0.25
                 + 0.5 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
             )
 
-        # === CASE 3: [other node outside cluster, W] -> 0.1
-        #         fixme if S == S -> 0.5
-        for _ in range(k):
-            r_idx = None
-            for _ in range(len(N)):
-                r_idx = random.choice(list(graph.nodes.keys()))
-                if graph.nodes[r_idx].type == "W":
-                    break
+        # === CASE 3: other cluster, W
+        for _ in range(CONFIG.samples_per_tensor):
+            r_idx = __get_node(cluster_idx=None, type="W")
             r_cluster_idx = graph.nodes[r_idx].cluster_idx
             if r_cluster_idx == cluster_idx:
                 continue
             if idx == r_idx:
                 continue
-            same_S = False
-            if np.linalg.norm(S[idx] - S[r_idx]) <= 0.001:
-                same_S = True
-            q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
-            X.append(__q(q_src, q_dst))
-            if same_S:
-                y.append(
-                    0.25
-                    + 0.25
-                    * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
-                )
-            else:
-                y.append(
-                    0.25 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
-                )
 
-        # === CASE 4: (W, F) -> 0
-        for _ in range(k):
-            r_idx = None
-            for _ in range(len(N)):
-                r_idx = random.choice(list(graph.nodes.keys()))
-                if graph.nodes[r_idx].type == "F":
-                    break
+            q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
+
+            # N_bonus = 0
+            # N_dist = np.linalg.norm(N[idx] - N[r_idx])
+
+            # if N_dist <= 0.1:
+            #     N_bonus = 0.25
+
+            S_bonus = 0
+            S_dist = np.linalg.norm(S[idx] - S[r_idx])
+
+            # if S_dist <= 1:
+            #     S_bonus = (1-S_dist)/4
+
+            if S_dist <= 0.001:
+                S_bonus = 0.25
+
+            X.append(__q(q_src, q_dst))
+            y.append(
+                # N_bonus +
+                S_bonus
+                + 0.25 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
+            )
+
+        # === CASE 4: ?, F
+        for _ in range(CONFIG.samples_per_tensor):
+            r_idx = __get_node(cluster_idx=None, type="F")
             r_cluster_idx = graph.nodes[r_idx].cluster_idx
             if idx == r_idx:
                 continue
+
             q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
+
             X.append(__q(q_src, q_dst))
             y.append(0)
 
-    print(len(y))
+    print("DATASET", len(y))
 
     return X, y
 
@@ -602,51 +704,33 @@ def transfer(model_src, model_dst, debug=False):
     # show_graph(graph_src, ver=3, path="__tli_src")
     # show_graph(graph_dst, ver=3, path="__tli_dst")
 
-    T_src, P_src, S_src, N_src = F_architecture(graph_src)
-    T_dst, P_dst, S_dst, N_dst = F_architecture(graph_dst)
+    P_src, S_src, N_src = F_architecture(graph_src)
+    P_dst, S_dst, N_dst = F_architecture(graph_dst)
 
-    # FIXME: gen dataset?
-    X1, y1 = gen_dataset(graph_src, T_src, P_src, S_src, N_src)
-    X2, y2 = gen_dataset(graph_dst, T_dst, P_dst, S_dst, N_dst)
+    X1, y1 = gen_dataset(graph_src, P_src, S_src, N_src)
+    X2, y2 = gen_dataset(graph_dst, P_dst, S_dst, N_dst)
     X = X1 + X2
     y = y1 + y2
-
-    from sklearn.model_selection import train_test_split
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=CONFIG.test_size, random_state=42
     )
 
-    from sklearn.metrics import mean_squared_error
+    ### AUTOENCODER ###
 
-    from sklearn.experimental import enable_hist_gradient_boosting  # noqa
-
-    # from sklearn.ensemble import GradientBoostingRegressor # slow
-    from sklearn.ensemble import HistGradientBoostingRegressor
-
-    # FIXME: use some magic standarization? @ 250
-    if False:
-        model = HistGradientBoostingRegressor(
-            max_iter=500, loss="poisson", l2_regularization=1.5
-        )
-    from sklearn.neural_network import MLPRegressor
-    model = MLPRegressor(max_iter=50, alpha=0.001, verbose=True)
-
+    model = CONFIG.autoencoder
     model.fit(X_train, y_train)
+
     y_hat = model.predict(X_test)
     loss = mean_squared_error(y_test, y_hat)
-    print(model)
-    print(f"loss = {loss}")
-    print("TRUE", y_test[0:10])
-    print("PRED", np.round(y_hat[0:10], 2))
-    print()
 
-    ## FIXME: try connection? # FIXME: elimination? greedy {top 3}
+    #################################################################
+    ## FIXME: bipartie_matching between top-k #######################
+    ## FIXME: match by clusters --> if best in cluster / eliminate ##
+    ## FIXME: try connection? # FIXME: elimination? greedy {top 3} ##
+    #################################################################
 
-    ############################################
-    ## FIXME: bipartie_matching between top-k  #
-    ## FIXME: match by clusters --> if best in cluster / eliminate
-    ############################################
+    ### MATCHING ###
 
     remap = {}
     seen = set()
@@ -677,7 +761,7 @@ def transfer(model_src, model_dst, debug=False):
             )
             q_arr.append(__q(q_src, q_dst))
             q_arr_idx_src.append(idx_src)
-            # FIXME: left-right? left-left?
+            # FIXME: left-right?
             q_arr.append(__q(q_dst, q_src))
             q_arr_idx_src.append(idx_src)
 
@@ -685,7 +769,6 @@ def transfer(model_src, model_dst, debug=False):
         # for i, idx_src in enumerate(q_arr_idx_src):
         #     print(f"\t idx_src = {idx_src:5} | score = {y_hat[i]}")
 
-        # FIXME: save top3 matches --> for each set (than set best bipartie)
         i = np.argmax(y_hat)
         idx_src = q_arr_idx_src[i]
         name_src = graph_src.nodes[idx_src].name
@@ -694,15 +777,22 @@ def transfer(model_src, model_dst, debug=False):
         if name_src != name_dst:
             error_sum += 1
             color_code = "\x1b[1;31;40m"
+
         color_end = "\x1b[0m"
         print(
             f"src= {idx_src:3} | dst= {idx_dst:3} | "
-            + f"S= {round(y_hat[i], 2):4} | {color_code}{name_src:30} / "
-            + f"{name_dst:10}{color_end}"
+            + f"S= {round(y_hat[i], 2):4} | {color_code}{name_src:30}{color_end} / "
+            + f"{name_dst:10}"
         )
         remap[idx_dst] = idx_src
         seen.add(idx_src)
         error_n += 1
+
+        # FIXME: save topk matches --> for each set (best bipartie)
+        # for top_i in (-y_hat).argsort()[:3]:
+        #    idx = q_arr_idx_src[top_i]
+        #    name = graph_src.nodes[idx].name
+        #    print(f"--> idx= {idx} | {name:30} | score= {round(y_hat[top_i], 2)}")
 
     print("=== MATCH =================")
     print(f" LOSS --> {loss}")
@@ -713,71 +803,6 @@ def transfer(model_src, model_dst, debug=False):
 
     show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
-    # print(clf.predict(predictionData),'\n')
-
-    # model = LinearRegression().fit(X_train, y_train)
-    # print(model)
-
-    # y_hat = downstream_model.predict_proba(X_test)[:, 1]
-    # auc = roc_auc_score(y_test, y_hat)
-    # print('AUC: {:.4f}'.format(auc))
-
-    ############################################################################
-
-    # FIXME: BIAS / WEIGHT (wildcard)
-    # FIXME: split_d for `student` then ensemble for encoder?
-
-    # >>> FOR FLOW
-    # split_map = split_flow_level(graph_teacher)
-    # pprint(split_map)
-    # encoded_split_map = encoder_graph(split_map)
-    # pprint(encoded_split_map)
-
-    # >>> FOR CLUSTERS
-    # for cluster_idx in graph_teacher.cluster_map.keys():
-    #     split_map = split_cluster_level(graph_teacher, cluster_idx)
-    #     pprint(split_map)
-    #     print(f"cluster_idx={cluster_idx}")
-    #     break
-
-    # >>> ALL FOR NODES
-    # edges = []
-    # for a, dst in graph_teacher.edges.items():
-    #     for b in dst:
-    #         edges.append([a, b])
-    # obj = encoder_nodes(edges)
-    # pprint(obj)
-    # sys.exit(1)
-
-    # >>> FOR NODES IN CLUSTER
-    # for cluster_idx in graph_teacher.cluster_map.keys():
-    #     obj = encoder_nodes(graph_teacher.cluster_map[cluster_idx].edges)
-    #     pprint(obj)
-    #     print("="*30)
-
-    # FIXME: KD-tree?
-    # FIXME: zrobic wizualizacje matchingu!!!!!!!!!!!!!!!!!!!!!!!
-    #     (przetestowac laczac ze soba 2 tensory)
-    #     (dodatek - wizualizacja dodatkowych `edges` do debugu)
-
-    #### [[[[[Fast Network Alignment]]]]]]] / xNetMF
-
-    # XXX XXX XXX XXX XXX [READ THIS] #######################
-    # https://gemslab.github.io/papers/heimann-2018-regal.pdf
-    # https://github.com/GemsLab/REGAL
-    #########################################################
-
-    # class NodeFeatures
-    #   [a] structures_info
-    #   [b] graph_info
-    #   [c] ???? shape
-    # for multiple matches [[ SparseMAP ]]
-    # ---> https://arxiv.org/pdf/1802.04223.pdf
-
-    # KD-tree? for representations?
-    # ----> MATRIX???
-
-    # matching if provided map
     return remap
 
 
@@ -816,8 +841,7 @@ class Cluster:
 
 
 def make_graph(var, params=None) -> Graph:
-    graph = Graph()
-    # FIXME: move to CONFIG
+    graph = Graph()  # FIXME: move to CONFIG
     mod_op = ["AddBackward0", "MulBackward0", "CatBackward"]
 
     if params is not None:
@@ -1012,7 +1036,7 @@ def make_dot(graph, ver=0, prefix="", rankdir="TB"):
     )
 
     print(f"graph_idx={graph_idx}")
-    graph_name = f"cluster_{graph_idx}" # if rankdir == "TB" else str(graph_idx)
+    graph_name = f"cluster_{graph_idx}"  # if rankdir == "TB" else str(graph_idx)
     dot = Digraph(name=graph_name, node_attr=node_attr, graph_attr=graph_attr)
 
     cluster_map, cluster_links = graph.cluster_map, graph.cluster_links
@@ -1096,6 +1120,7 @@ def make_dot(graph, ver=0, prefix="", rankdir="TB"):
     dot.engine = "dot"
     return dot
 
+
 def resize_dot(dot, size_per_element=0.15, min_size=12):
     num_rows = len(dot.body)
     content_size = num_rows * size_per_element
@@ -1103,6 +1128,7 @@ def resize_dot(dot, size_per_element=0.15, min_size=12):
     size_str = str(size) + "," + str(size)
     dot.graph_attr.update(size=size_str)
     return size
+
 
 def show_graph(model, ver=0, path="__tli_debug", input=None):
     # FIXME: warning about 'graphviz'
@@ -1145,6 +1171,7 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
     os.system(f"rm {path}")
     print("saved to file")
 
+
 ################################################################################
 # Debug
 ################################################################################
@@ -1152,16 +1179,19 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
 if __name__ == "__main__":
     if False:
         from research_models import get_model_debug, ResNetUNet
+
         model_debug = get_model_debug(seed=3, channels=3, classes=10)
         model_unet = ResNetUNet(n_class=6)
 
     # model_A = get_model_timm("regnetx_002")
     # model_B = get_model_timm("efficientnet_lite0")
 
-    # model_A = get_model_timm("mixnet_s")
-    # model_B = get_model_timm("mixnet_m")
+    # model_A = get_model_timm("mixnet_m")
+    # model_B = get_model_timm("mixnet_s")
 
-    model_A = get_model_timm("efficientnet_lite0")
-    model_B = get_model_timm("efficientnet_lite1")
+    # lite0->lite1 | 52/194
+    # lite1->lite0 | 27/149
+    model_A = get_model_timm("efficientnet_lite1")
+    model_B = get_model_timm("efficientnet_lite0")
 
     transfer(model_A, model_B, debug=True)  # tli sie
