@@ -488,17 +488,18 @@ CONFIG = TLIConfig(
             dimensions=embedding_dim
         ),  # FIXME: use xNetMF
         "autoencoder": MLPRegressor(
-            max_iter=50//3,  # FIXME: best 50
+            max_iter=100//3,  # FIXME: best 50
             early_stopping=False,
             activation="relu",
             solver="adam",
-            hidden_layer_sizes=(125,25,), # 150, 25
+            tol=0.0001,
+            hidden_layer_sizes=(125,25,), # 125, 25
             warm_start=True,
             learning_rate_init=0.001,
             alpha=0.001,
             verbose=True,
         ),
-        "test_size": 0.05,  # FIXME: this is important!
+        "test_size": 0.05, # FIXME: this is important!
         "samples_per_tensor": 5,
     }
 )
@@ -577,12 +578,15 @@ def F_architecture(graph, mlb=None):
         _shape4 = nn.ConstantPad1d((0, 4 - len(node.size)), 0.0)(
             torch.tensor(node.size)
         )
-        shape = _shape4.type(torch.FloatTensor) / torch.max(1 + _shape4)
+        shape = __shape_score(_shape4.type(torch.FloatTensor), (100, 1, 1,
+                                                                1))
+        shape4 = _shape4.type(torch.FloatTensor) / torch.max(1 + _shape4)
         _level_rev = (graph.max_level - node.level) / graph.max_level
         _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
         _type = 0 if ".bias" in node.name else 1
         N[idx] = np.array(
-            shape.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
+            [shape] + shape4.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
+            #   shape.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
         )
 
     print("(encode_graph ended)")
@@ -655,16 +659,16 @@ def gen_dataset(graph, P, S, N):
 
             q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
 
-            # N_bonus = 0
-            # N_dist = np.linalg.norm(N[idx] - N[r_idx])
+            N_bonus = 0
+            N_dist = np.linalg.norm(N[idx] - N[r_idx])
 
-            # if N_dist <= 0.1:
-            #     N_bonus = 0.25
+            if N_dist <= 1:
+                N_bonus = (1-N_dist)/4
 
             X.append(__q(q_src, q_dst))
             y.append(
-                # N_bonus +
-                0.25
+                N_bonus +
+                0.25 +
                 + 0.5 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
             )
 
@@ -679,25 +683,22 @@ def gen_dataset(graph, P, S, N):
 
             q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
 
-            # N_bonus = 0
-            # N_dist = np.linalg.norm(N[idx] - N[r_idx])
+            N_bonus = 0
+            N_dist = np.linalg.norm(N[idx] - N[r_idx])
 
-            # if N_dist <= 0.1:
-            #     N_bonus = 0.25
+            if N_dist <= 1:
+                N_bonus = (1-N_dist)/4
 
             S_bonus = 0
             S_dist = np.linalg.norm(S[idx] - S[r_idx])
 
-            # if S_dist <= 1:
-            #     S_bonus = (1-S_dist)/4
-
-            if S_dist <= 0.001:
-                S_bonus = 0.25
+            if S_dist <= 1:
+                S_bonus = (1-S_dist)/4
 
             X.append(__q(q_src, q_dst))
             y.append(
-                # N_bonus +
-                S_bonus
+                N_bonus/2 +
+                S_bonus/2
                 + 0.25 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
             )
 
@@ -892,7 +893,8 @@ def transfer(model_src, model_dst, debug=False):
     # FIXME: wes argmax dla wiekszego modelu?
     # FIXME: [(maximum cover, max flow, biparte)]
 
-    show_remap(graph_src, graph_dst, remap, path="__tli_remap")
+    if debug:
+        show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
     return remap, graph_src, graph_dst
 
@@ -1303,19 +1305,41 @@ if __name__ == "__main__":
         model_debug = get_model_debug(seed=3, channels=3, classes=10)
         model_unet = ResNetUNet(n_class=6)
 
+    if False: # 8 / 158
+        model_A = get_model_timm("efficientnet_lite1")
+        model_B = get_model_timm("mnasnet_100")
+
+    if False: # 0 / 149
+        model_A = get_model_timm("efficientnet_lite1")
+        model_B = get_model_timm("efficientnet_lite0")
+
+    if False: # 45 / 194
+        model_A = get_model_timm("efficientnet_lite0")
+        model_B = get_model_timm("efficientnet_lite1")
+
+    if False: # 0 / 194
+        model_A = get_model_timm("efficientnet_lite1")
+        model_B = get_model_timm("efficientnet_lite1")
+
+    if False: # 1 / 149
+        model_A = get_model_timm("efficientnet_lite0")
+        model_B = get_model_timm("efficientnet_lite0")
+
+    if False: # 7 / 249
+        model_A = get_model_timm("mixnet_s")
+        model_B = get_model_timm("mixnet_s")
+
+    if False: # 100 / 300
+        model_A = get_model_timm("mixnet_s")
+        model_B = get_model_timm("mixnet_m")
+
+    if True: # 28 / 249
+        model_A = get_model_timm("mixnet_m")
+        model_B = get_model_timm("mixnet_s")
+
+    if False: # 103 / 213
+        model_A = get_model_timm("efficientnet_lite1")
+        model_B = get_model_timm("tf_efficientnet_b0_ap")
+
     # model_A = get_model_timm("regnetx_002")
-    # model_B = get_model_timm("efficientnet_lite0")
-
-    # model_A = get_model_timm("mixnet_s")
-    # model_B = get_model_timm("mixnet_m")
-    # model_A = get_model_timm("mixnet_m")
-    # model_B = get_model_timm("mixnet_s")
-
-    # lite0->lite1 | 52/194 | 45/194
-    # lite1->lite0 | 27/149 |  0/149
-    model_A = get_model_timm("efficientnet_lite0")
-    model_B = get_model_timm("efficientnet_lite0")
-    # model_A = get_model_timm("mnasnet_100")
-    #model_B = get_model_timm("tf_efficientnet_b0_ap")
-
     transfer(model_A, model_B, debug=True)  # tli sie
