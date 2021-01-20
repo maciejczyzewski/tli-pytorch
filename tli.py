@@ -68,6 +68,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPRegressor
 from torch.autograd import Variable
+from typing import Tuple, List, Any, Union, Dict
 
 ################################################################################
 # API
@@ -556,9 +557,9 @@ def F_architecture(graph, mlb=None):
 
     ### NODE ENCODING ###
     N = {}  # FIXME: move to fn_node_encoder?
-    # FIXME: make it for two graphs!
     vec = []
     for idx, node in graph.nodes.items():
+        # FIXME: ??? encode type of layer ??? class
         vec.append(node.name.split("."))
     vec = mlb.transform(vec)
     for i, (idx, node) in enumerate(
@@ -571,8 +572,6 @@ def F_architecture(graph, mlb=None):
         _level_rev = (graph.max_level - node.level) / graph.max_level
         _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
         _type = 0 if ".bias" in node.name else 1
-        # FIXME: illegal "." dot split encoder
-        # print(vec_names[i])
         N[idx] = np.array(
             shape.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
         )
@@ -714,6 +713,11 @@ def transfer(model_src, model_dst, debug=False):
     graph_src = get_graph(model_src)
     graph_dst = get_graph(model_dst)
 
+    # src_ids_to_layers_mapping = get_idx_to_layers_mapping(model_src,
+    #                                                           graph_src)
+    # dst_ids_to_layers_mapping = get_idx_to_layers_mapping(model_dst,
+    #                                                           graph_dst)
+
     # show_graph(graph_src, ver=3, path="__tli_src")
     # show_graph(graph_dst, ver=3, path="__tli_dst")
 
@@ -742,6 +746,8 @@ def transfer(model_src, model_dst, debug=False):
 
     ### AUTOENCODER ###
 
+    # https://scikit-learn.org/stable/modules/generated/sklearn.semi_supervised.SelfTrainingClassifier.html#sklearn.semi_supervised.SelfTrainingClassifier
+
     model = CONFIG.autoencoder
     model.fit(X_train, y_train)
 
@@ -757,7 +763,6 @@ def transfer(model_src, model_dst, debug=False):
     ### MATCHING ###
 
     # FIXME: move to [fn_matcher, fn_scorer]
-    # FIXME: get only "W" for scoring? --> re-map array
 
     def __norm_weights(graph):
         arr, imap = [], {}
@@ -776,9 +781,15 @@ def transfer(model_src, model_dst, debug=False):
     n, m = len(src_arr), len(dst_arr)
     scores = np.zeros((n, m))
 
+    # classes = [
+    #         nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d,
+    #         nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+    #         nn.Linear
+    # ]
+
     for dst_j, idx_dst in enumerate(dst_arr):
         node_dst = graph_dst.nodes[idx_dst]
-        # dst_type = node_dst.name.split(".")[-1]
+        dst_type = node_dst.name.split(".")[-1]
 
         q_dst = (
             list(P_dst[node_dst.cluster_idx])
@@ -789,6 +800,7 @@ def transfer(model_src, model_dst, debug=False):
         q_arr = []
         for src_i, idx_src in enumerate(src_arr):
             node_src = graph_src.nodes[idx_src]
+            src_type = node_src.name.split(".")[-1]
 
             q_src = (
                 list(P_src[node_src.cluster_idx])
@@ -797,6 +809,19 @@ def transfer(model_src, model_dst, debug=False):
             )
             q_arr.append(__q(q_src, q_dst))
             scores[src_i, dst_j] = __shape_score(node_dst.size, node_src.size)
+
+            # src_layer = src_ids_to_layers_mapping[idx_src]
+            # dst_layer = dst_ids_to_layers_mapping[idx_dst]
+
+            # not_same_class = True
+            # for classname in classes:
+            #     if isinstance(src_layer, classname) and \
+            #         isinstance(dst_layer, classname):
+            #             not_same_class = False
+            #             break
+
+            if dst_type != src_type: # or not_same_class:
+                scores[src_i, dst_j] = 0
 
         y_hat = model.predict(q_arr)
         scores[:, dst_j] *= y_hat
@@ -852,12 +877,7 @@ def transfer(model_src, model_dst, debug=False):
 
     show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
-    return remap
-
-
-def transfer_fna():
-    # FIXME: udoskonalony 'levi/fna++'?
-    pass
+    return remap, graph_src, graph_dst
 
 
 ################################################################################
@@ -1061,6 +1081,23 @@ def get_graph(model, input=None):
     return graph
 
 
+# def get_idx_to_layers_mapping(model: nn.Module, graph: Graph) -> Dict[int, nn.Module]:
+#     names_to_layers_mapping = {}
+#     def dfs(model: nn.Module, name_prefix: List[str]):
+#         for child_name, child in model.named_children():
+#             dfs(child, name_prefix + [child_name])
+#         names_to_layers_mapping[".".join(name_prefix)] = model
+#     dfs(model, [])
+
+#     ids_to_layers_mapping = {}
+#     for node in graph.nodes.values():
+#         if node.type == "W":
+#             node_name = node.name.replace(".weight", "").replace(".bias", "")
+#             layer = names_to_layers_mapping[node_name]
+#             ids_to_layers_mapping[node.idx] = layer
+
+#     return ids_to_layers_mapping
+
 ################################################################################
 # Visualization
 ################################################################################
@@ -1254,11 +1291,14 @@ if __name__ == "__main__":
 
     # model_A = get_model_timm("mixnet_s")
     # model_B = get_model_timm("mixnet_m")
+    model_A = get_model_timm("mixnet_m")
+    model_B = get_model_timm("mixnet_s")
 
     # lite0->lite1 | 52/194
     # lite1->lite0 | 27/149
-    model_A = get_model_timm("efficientnet_lite1")
-    model_B = get_model_timm("efficientnet_lite0")
+    # model_A = get_model_timm("efficientnet_lite1")
+    # model_B = get_model_timm("efficientnet_lite0")
     # model_B = get_model_timm("mnasnet_100")
+    # model_B = get_model_timm("tf_efficientnet_b0_ap")
 
     transfer(model_A, model_B, debug=True)  # tli sie
