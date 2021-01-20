@@ -477,27 +477,29 @@ class TLIConfig(object):
         self.__dict__.update(adict)
 
 
-embedding_dim = 5  # FIXME: was 9, how to find?
+embedding_dim = 3  # best 6, 5 / FIXME: was 9, how to find?
 CONFIG = TLIConfig(
     {
         # FIXME: move outsite? --> lazy_load?
         "node_embedding_attributed": FeatherNode(
-            eval_points=3, order=3, reduction_dimensions=32
+            eval_points=2, order=2, reduction_dimensions=32
         ),
         "node_embedding_neighbourhood": NetMF(
             dimensions=embedding_dim
         ),  # FIXME: use xNetMF
         "autoencoder": MLPRegressor(
-            max_iter=50,  # FIXME: best 50
+            max_iter=50//3,  # FIXME: best 50
             early_stopping=False,
             activation="relu",
             solver="adam",
-            hidden_layer_sizes=(100,),
+            hidden_layer_sizes=(125,25,), # 150, 25
+            warm_start=True,
+            learning_rate_init=0.001,
             alpha=0.001,
             verbose=True,
         ),
-        "test_size": 0.1,  # FIXME: this is important!
-        "samples_per_tensor": 10,
+        "test_size": 0.05,  # FIXME: this is important!
+        "samples_per_tensor": 5,
     }
 )
 
@@ -516,7 +518,7 @@ def E_nodes(edges, attr=None):
 
     graph = get_networkx(norm_graph, dag=False)
     if attr:
-        model.fit(graph, norm_attr)
+        model.fit(graph, np.array(norm_attr))
         X = model.get_embedding()
     else:
         model.fit(graph)
@@ -560,7 +562,14 @@ def F_architecture(graph, mlb=None):
     vec = []
     for idx, node in graph.nodes.items():
         # FIXME: ??? encode type of layer ??? class
-        vec.append(node.name.split("."))
+        _vec = list(node.name.replace(".weight", "").replace(".bias", ""))
+        _lvl = [s for s in _vec if s.isdigit()]
+        _lvl = "".join(_lvl)
+        if _lvl:
+            _vec.append(_lvl)
+        vec.append(_vec)
+        #vec.append(list(node.name.replace(".weight", "").replace(".bias", "")))
+        #vec.append(node.name.split("."))
     vec = mlb.transform(vec)
     for i, (idx, node) in enumerate(
         graph.nodes.items()
@@ -727,9 +736,15 @@ def transfer(model_src, model_dst, debug=False):
 
     vec = []
     for idx, node in graph_src.nodes.items():
-        vec.append(node.name.split("."))
-    for idx, node in graph_dst.nodes.items():
-        vec.append(node.name.split("."))
+        _vec = list(node.name.replace(".weight", "").replace(".bias", ""))
+        _lvl = [s for s in _vec if s.isdigit()]
+        _lvl = "".join(_lvl)
+        if _lvl:
+            _vec.append(_lvl)
+        vec.append(_vec)
+        # vec.append(list(node.name.replace(".weight", "").replace(".bias", "")))
+    # for idx, node in graph_dst.nodes.items():
+    #     vec.append(node.name.split("."))
     mlb.fit(vec)
 
     P_src, S_src, N_src = F_architecture(graph_src, mlb=mlb)
@@ -749,6 +764,8 @@ def transfer(model_src, model_dst, debug=False):
     # https://scikit-learn.org/stable/modules/generated/sklearn.semi_supervised.SelfTrainingClassifier.html#sklearn.semi_supervised.SelfTrainingClassifier
 
     model = CONFIG.autoencoder
+    model.fit(X1, y1)
+    model.fit(X2, y2)
     model.fit(X_train, y_train)
 
     y_hat = model.predict(X_test)
@@ -1291,14 +1308,14 @@ if __name__ == "__main__":
 
     # model_A = get_model_timm("mixnet_s")
     # model_B = get_model_timm("mixnet_m")
-    model_A = get_model_timm("mixnet_m")
-    model_B = get_model_timm("mixnet_s")
+    # model_A = get_model_timm("mixnet_m")
+    # model_B = get_model_timm("mixnet_s")
 
-    # lite0->lite1 | 52/194
-    # lite1->lite0 | 27/149
-    # model_A = get_model_timm("efficientnet_lite1")
-    # model_B = get_model_timm("efficientnet_lite0")
-    # model_B = get_model_timm("mnasnet_100")
-    # model_B = get_model_timm("tf_efficientnet_b0_ap")
+    # lite0->lite1 | 52/194 | 45/194
+    # lite1->lite0 | 27/149 |  0/149
+    model_A = get_model_timm("efficientnet_lite0")
+    model_B = get_model_timm("efficientnet_lite0")
+    # model_A = get_model_timm("mnasnet_100")
+    #model_B = get_model_timm("tf_efficientnet_b0_ap")
 
     transfer(model_A, model_B, debug=True)  # tli sie
