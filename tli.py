@@ -487,7 +487,7 @@ CONFIG = TLIConfig(
             dimensions=embedding_dim
         ),  # FIXME: use xNetMF
         "autoencoder": MLPRegressor(
-            max_iter=50,
+            max_iter=50, # FIXME: best 50
             early_stopping=False,
             activation="relu",
             solver="adam",
@@ -556,7 +556,17 @@ def F_architecture(graph):
 
     ### NODE ENCODING ###
     N = {}  # FIXME: move to fn_node_encoder?
-    for idx, node in graph.nodes.items():  # FIXME: better way? [pad len 4]
+    from sklearn.preprocessing import MultiLabelBinarizer
+    mlb = MultiLabelBinarizer()
+    vec_names = []
+    for idx, node in graph.nodes.items():
+        vec = node.name.split(".")
+        vec_names.append(vec)
+    vec_names = mlb.fit_transform(vec_names)
+    # FIXME: only if `weights`
+    #print(mlb.classes_)
+    #sys.exit()
+    for i, (idx, node) in enumerate(graph.nodes.items()):  # FIXME: better way? [pad len 4]
         _shape4 = nn.ConstantPad1d((0, 4 - len(node.size)), 0.0)(
             torch.tensor(node.size)
         )
@@ -564,7 +574,10 @@ def F_architecture(graph):
         _level_rev = (graph.max_level - node.level) / graph.max_level
         _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
         _type = 0 if ".bias" in node.name else 1
-        N[idx] = np.array(shape.tolist() + [_cluster_rev, _level_rev, _type])
+        # FIXME: illegal "." dot split encoder
+        # print(vec_names[i])
+        N[idx] = np.array(shape.tolist() + [_cluster_rev, _level_rev, _type] +
+                          vec_names[i].tolist())
 
     print("(encode_graph ended)")
     return P, S, N
@@ -573,18 +586,17 @@ def F_architecture(graph):
 def __q(a, b):
     return np.concatenate((a, b), axis=0)
 
+def __shape_score(s1, s2):
+    if len(s1) != len(s2):
+        return 0
+    score = 1
+    for x, y in zip(s1, s2):
+        score *= min(x / y, y / x)
+    return score
 
 # gen_dataset / `self-learn`
 def gen_dataset(graph, P, S, N):
     X, y = [], []
-
-    def __shape_score(s1, s2):
-        if len(s1) != len(s2):
-            return 0
-        score = 1
-        for x, y in zip(s1, s2):
-            score *= min(x / y, y / x)
-        return score
 
     # FIXME: move to encoder settings? / encoder definition
     for idx, node in graph.nodes.items():
@@ -733,13 +745,30 @@ def transfer(model_src, model_dst, debug=False):
 
     ### MATCHING ###
 
+    # FIXME: move to [fn_matcher, fn_scorer]
+    # FIXME: get only "W" for scoring? --> re-map array
+
+    def __norm_weights(graph):
+        arr, imap = [], {}
+        for i, (idx, node) in enumerate(graph.nodes.items()):
+            if node.type != "W":
+                continue
+            arr.append(idx)
+            imap[i] = idx
+        return arr, imap
+
+    src_arr, src_map = __norm_weights(graph_src)
+    dst_arr, dst_map = __norm_weights(graph_dst)
+
     remap = {}
-    seen = set()
-    error_n, error_sum = 0, 0
-    for idx_dst, node_dst in graph_dst.nodes.items():
-        if node_dst.type != "W":
-            continue
-        dst_type = node_dst.name.split(".")[-1]
+
+    n, m = len(src_arr), len(dst_arr)
+    scores = np.zeros((n, m))
+
+    for dst_j, idx_dst in enumerate(dst_arr):
+        node_dst = graph_dst.nodes[idx_dst]
+        # dst_type = node_dst.name.split(".")[-1]
+
         q_dst = (
             list(P_dst[node_dst.cluster_idx])
             + list(S_dst[idx_dst])
@@ -747,31 +776,40 @@ def transfer(model_src, model_dst, debug=False):
         )
 
         q_arr = []
-        q_arr_idx_src = []
+        for src_i, idx_src in enumerate(src_arr):
+            node_src = graph_src.nodes[idx_src]
 
-        for idx_src, node_src in graph_src.nodes.items():
-            if node_src.type != "W":
-                continue
-            src_type = node_src.name.split(".")[-1]
-            if src_type != dst_type:
-                continue
             q_src = (
                 list(P_src[node_src.cluster_idx])
                 + list(S_src[idx_src])
                 + list(N_src[idx_src])
             )
             q_arr.append(__q(q_src, q_dst))
-            q_arr_idx_src.append(idx_src)
-            # FIXME: left-right?
-            q_arr.append(__q(q_dst, q_src))
-            q_arr_idx_src.append(idx_src)
+            scores[src_i, dst_j] = \
+                __shape_score(node_dst.size, node_src.size)
 
         y_hat = model.predict(q_arr)
-        # for i, idx_src in enumerate(q_arr_idx_src):
-        #     print(f"\t idx_src = {idx_src:5} | score = {y_hat[i]}")
+        scores[:, dst_j] *= y_hat
 
-        i = np.argmax(y_hat)
-        idx_src = q_arr_idx_src[i]
+
+    ##############################################
+
+    for dst_j, idx_dst in enumerate(dst_arr):
+        i = np.argmax(scores[:, dst_j])
+        idx_src = src_arr[i]
+        remap[idx_dst] = idx_src
+
+    ##############################################
+
+    seen = set()
+    error_n, error_sum = 0, 0
+
+    for j, idx_dst in enumerate(dst_arr):
+        node_dst = graph_dst.nodes[idx_dst]
+
+        idx_src = remap[idx_dst]
+        score = 0 # scores[src_i[idx_src], dst_i[idx_]]
+
         name_src = graph_src.nodes[idx_src].name
         name_dst = node_dst.name
         color_code = "\x1b[1;37;40m"
@@ -782,18 +820,12 @@ def transfer(model_src, model_dst, debug=False):
         color_end = "\x1b[0m"
         print(
             f"src= {idx_src:3} | dst= {idx_dst:3} | "
-            + f"S= {round(y_hat[i], 2):4} | {color_code}{name_src:30}{color_end} / "
+            + f"S= {round(score, 2):4} | {color_code}{name_src:30}{color_end} / "
             + f"{name_dst:10}"
         )
-        remap[idx_dst] = idx_src
+
         seen.add(idx_src)
         error_n += 1
-
-        # FIXME: save topk matches --> for each set (best bipartie)
-        # for top_i in (-y_hat).argsort()[:3]:
-        #    idx = q_arr_idx_src[top_i]
-        #    name = graph_src.nodes[idx].name
-        #    print(f"--> idx= {idx} | {name:30} | score= {round(y_hat[top_i], 2)}")
 
     print("=== MATCH =================")
     print(f" LOSS --> {loss}")
@@ -802,10 +834,20 @@ def transfer(model_src, model_dst, debug=False):
     print(f"ERROR --> {error_sum:5}/{error_n:5} | {round(error_sum/error_n,2)}")
     print("===========================")
 
+    #############################################
+
+    # FIXME: dwa razy odpalone?
+    # FIXME: choose bigger model to smaller? --> argmax [matrix]
+    # FIXME: wes argmax dla wiekszego modelu?
+    # FIXME: [(maximum cover, max flow, biparte)]
+
     show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
     return remap
 
+def transfer_fna():
+    # FIXME: udoskonalony 'levi/fna++'?
+    pass
 
 ################################################################################
 # Trace Graph
@@ -966,7 +1008,8 @@ def make_graph(var, params=None) -> Graph:
             __bfs(v.grad_fn)
     else:
         # FIXME: option to choose method? (degree=None)
-        nodes, edges, max_level = __bfs(var.grad_fn)
+        # FIXME: add to config
+        nodes, edges, max_level = __bfs(var.grad_fn)#, degree=None)
 
     graph.nodes = nodes
     graph.edges = edges
@@ -1157,12 +1200,12 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
     ###
     dot_g2.graph_attr.update(compound="True")
     dot_g1.graph_attr.update(compound="True")
-    dot.graph_attr.update(compound="True")
+    dot.graph_attr.update(compound="True") #, peripheries="0")
     dot.subgraph(dot_g2)
     dot.subgraph(dot_g1)
     from matplotlib.colors import to_hex
     import matplotlib.pyplot as plt
-    cmap = plt.get_cmap('rainbow')
+    cmap = plt.get_cmap('gist_rainbow')
     colors = cmap(np.linspace(0, 1, len(g1.cluster_map.keys())))
     colors_map = {} # FIXME: sorted?
     for (cluster_idx, color) in zip(g1.cluster_map.keys(), colors):
@@ -1197,12 +1240,12 @@ if __name__ == "__main__":
     # model_A = get_model_timm("regnetx_002")
     # model_B = get_model_timm("efficientnet_lite0")
 
-    # model_A = get_model_timm("mixnet_m")
-    # model_B = get_model_timm("mixnet_s")
+    model_A = get_model_timm("mixnet_s")
+    model_B = get_model_timm("mixnet_m")
 
     # lite0->lite1 | 52/194
     # lite1->lite0 | 27/149
-    model_A = get_model_timm("efficientnet_lite1")
-    model_B = get_model_timm("efficientnet_lite0")
+    # model_A = get_model_timm("efficientnet_lite0")
+    # model_B = get_model_timm("efficientnet_lite1")
 
     transfer(model_A, model_B, debug=True)  # tli sie
