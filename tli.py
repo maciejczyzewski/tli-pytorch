@@ -487,7 +487,7 @@ CONFIG = TLIConfig(
             dimensions=embedding_dim
         ),  # FIXME: use xNetMF
         "autoencoder": MLPRegressor(
-            max_iter=50, # FIXME: best 50
+            max_iter=50,  # FIXME: best 50
             early_stopping=False,
             activation="relu",
             solver="adam",
@@ -529,7 +529,7 @@ def E_nodes(edges, attr=None):
     return encoded_nodes
 
 
-def F_architecture(graph):
+def F_architecture(graph, mlb=None):
     ### POSITION ENCODING ###
     edges = []
     cluster_feature = {}
@@ -556,17 +556,14 @@ def F_architecture(graph):
 
     ### NODE ENCODING ###
     N = {}  # FIXME: move to fn_node_encoder?
-    from sklearn.preprocessing import MultiLabelBinarizer
-    mlb = MultiLabelBinarizer()
-    vec_names = []
+    # FIXME: make it for two graphs!
+    vec = []
     for idx, node in graph.nodes.items():
-        vec = node.name.split(".")
-        vec_names.append(vec)
-    vec_names = mlb.fit_transform(vec_names)
-    # FIXME: only if `weights`
-    #print(mlb.classes_)
-    #sys.exit()
-    for i, (idx, node) in enumerate(graph.nodes.items()):  # FIXME: better way? [pad len 4]
+        vec.append(node.name.split("."))
+    vec = mlb.transform(vec)
+    for i, (idx, node) in enumerate(
+        graph.nodes.items()
+    ):  # FIXME: better way? [pad len 4]
         _shape4 = nn.ConstantPad1d((0, 4 - len(node.size)), 0.0)(
             torch.tensor(node.size)
         )
@@ -576,8 +573,9 @@ def F_architecture(graph):
         _type = 0 if ".bias" in node.name else 1
         # FIXME: illegal "." dot split encoder
         # print(vec_names[i])
-        N[idx] = np.array(shape.tolist() + [_cluster_rev, _level_rev, _type] +
-                          vec_names[i].tolist())
+        N[idx] = np.array(
+            shape.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
+        )
 
     print("(encode_graph ended)")
     return P, S, N
@@ -586,6 +584,7 @@ def F_architecture(graph):
 def __q(a, b):
     return np.concatenate((a, b), axis=0)
 
+
 def __shape_score(s1, s2):
     if len(s1) != len(s2):
         return 0
@@ -593,6 +592,7 @@ def __shape_score(s1, s2):
     for x, y in zip(s1, s2):
         score *= min(x / y, y / x)
     return score
+
 
 # gen_dataset / `self-learn`
 def gen_dataset(graph, P, S, N):
@@ -717,8 +717,19 @@ def transfer(model_src, model_dst, debug=False):
     # show_graph(graph_src, ver=3, path="__tli_src")
     # show_graph(graph_dst, ver=3, path="__tli_dst")
 
-    P_src, S_src, N_src = F_architecture(graph_src)
-    P_dst, S_dst, N_dst = F_architecture(graph_dst)
+    from sklearn.preprocessing import MultiLabelBinarizer
+
+    mlb = MultiLabelBinarizer()
+
+    vec = []
+    for idx, node in graph_src.nodes.items():
+        vec.append(node.name.split("."))
+    for idx, node in graph_dst.nodes.items():
+        vec.append(node.name.split("."))
+    mlb.fit(vec)
+
+    P_src, S_src, N_src = F_architecture(graph_src, mlb=mlb)
+    P_dst, S_dst, N_dst = F_architecture(graph_dst, mlb=mlb)
 
     X1, y1 = gen_dataset(graph_src, P_src, S_src, N_src)
     X2, y2 = gen_dataset(graph_dst, P_dst, S_dst, N_dst)
@@ -785,12 +796,10 @@ def transfer(model_src, model_dst, debug=False):
                 + list(N_src[idx_src])
             )
             q_arr.append(__q(q_src, q_dst))
-            scores[src_i, dst_j] = \
-                __shape_score(node_dst.size, node_src.size)
+            scores[src_i, dst_j] = __shape_score(node_dst.size, node_src.size)
 
         y_hat = model.predict(q_arr)
         scores[:, dst_j] *= y_hat
-
 
     ##############################################
 
@@ -808,7 +817,7 @@ def transfer(model_src, model_dst, debug=False):
         node_dst = graph_dst.nodes[idx_dst]
 
         idx_src = remap[idx_dst]
-        score = 0 # scores[src_i[idx_src], dst_i[idx_]]
+        score = 0  # scores[src_i[idx_src], dst_i[idx_]]
 
         name_src = graph_src.nodes[idx_src].name
         name_dst = node_dst.name
@@ -845,9 +854,11 @@ def transfer(model_src, model_dst, debug=False):
 
     return remap
 
+
 def transfer_fna():
     # FIXME: udoskonalony 'levi/fna++'?
     pass
+
 
 ################################################################################
 # Trace Graph
@@ -1009,7 +1020,7 @@ def make_graph(var, params=None) -> Graph:
     else:
         # FIXME: option to choose method? (degree=None)
         # FIXME: add to config
-        nodes, edges, max_level = __bfs(var.grad_fn)#, degree=None)
+        nodes, edges, max_level = __bfs(var.grad_fn)  # , degree=None)
 
     graph.nodes = nodes
     graph.edges = edges
@@ -1200,14 +1211,15 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
     ###
     dot_g2.graph_attr.update(compound="True")
     dot_g1.graph_attr.update(compound="True")
-    dot.graph_attr.update(compound="True") #, peripheries="0")
+    dot.graph_attr.update(compound="True")  # , peripheries="0")
     dot.subgraph(dot_g2)
     dot.subgraph(dot_g1)
     from matplotlib.colors import to_hex
     import matplotlib.pyplot as plt
-    cmap = plt.get_cmap('gist_rainbow')
+
+    cmap = plt.get_cmap("gist_rainbow")
     colors = cmap(np.linspace(0, 1, len(g1.cluster_map.keys())))
-    colors_map = {} # FIXME: sorted?
+    colors_map = {}  # FIXME: sorted?
     for (cluster_idx, color) in zip(g1.cluster_map.keys(), colors):
         colors_map[cluster_idx] = color
     for idx_dst, idx_src in remap.items():
@@ -1240,12 +1252,13 @@ if __name__ == "__main__":
     # model_A = get_model_timm("regnetx_002")
     # model_B = get_model_timm("efficientnet_lite0")
 
-    model_A = get_model_timm("mixnet_s")
-    model_B = get_model_timm("mixnet_m")
+    # model_A = get_model_timm("mixnet_s")
+    # model_B = get_model_timm("mixnet_m")
 
     # lite0->lite1 | 52/194
     # lite1->lite0 | 27/149
-    # model_A = get_model_timm("efficientnet_lite0")
-    # model_B = get_model_timm("efficientnet_lite1")
+    model_A = get_model_timm("efficientnet_lite1")
+    model_B = get_model_timm("efficientnet_lite0")
+    # model_B = get_model_timm("mnasnet_100")
 
     transfer(model_A, model_B, debug=True)  # tli sie
