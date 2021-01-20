@@ -9,7 +9,7 @@ from tli import apply_tli
 # FIXME: create_function for run --> "create_case"
 #        z operatorem  "->" itp. oraz grupy (zamiast slownika?)
 
-ITERATIONS = 50
+ITERATIONS = 1000 # 50
 
 MODELS = {
     "hidden_A": {"model": __lazy_init(get_model_debug, {"seed": 1})},

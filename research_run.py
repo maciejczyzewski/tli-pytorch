@@ -383,7 +383,7 @@ def run_case(config, models, save_model=False):
         # FIXME: zapisuje tylko try_i == 1 -> w innych wypadkach pomija?
         raise Exception("cannot use `try_n>1` with `save_model=True`")
 
-    is_tli = True if (this["init"] and "TLI" in this["init"].name) else False
+    is_tli = True if (this["init"] and "tli" in this["init"].name) else False
     init_name = this["init"].name if this["init"] else str(None)
     init_from = this["init"].params["teacher"] if is_tli else None
 

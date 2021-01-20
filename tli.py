@@ -78,6 +78,8 @@ from torch.autograd import Variable
 
 
 def apply_tli(model, teacher=None):
+    print(f"[TLI]   model={model}")
+    print(f"[TLI] teacher={teacher}")
     model_teacher = str_to_model(teacher)
     transfer(model_teacher, model)
     return model
@@ -627,6 +629,10 @@ def gen_dataset(graph, P, S, N):
         #    continue
 
         cluster_idx = node.cluster_idx
+        # FIXME
+        # print("Q1", node, cluster_idx)
+        # print("Q2", graph.cluster_map.keys())
+        # print("Q3", P)
 
         # FIXME: make it pretty
         # FIXME: encoder score for [N]
@@ -749,8 +755,9 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     # dst_ids_to_layers_mapping = get_idx_to_layers_mapping(model_dst,
     #                                                           graph_dst)
 
-    # show_graph(graph_src, ver=3, path="__tli_src")
-    # show_graph(graph_dst, ver=3, path="__tli_dst")
+    if debug:
+        show_graph(graph_src, ver=3, path="__tli_src")
+        show_graph(graph_dst, ver=3, path="__tli_dst")
 
     from sklearn.preprocessing import MultiLabelBinarizer
 
@@ -920,6 +927,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     # FIXME: [(maximum cover, max flow, biparte)]
 
     if debug:
+        # FIXME: do pracy dodac rysunek z sieci typu "debug"
         show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
     p_src_ref = {}
@@ -1107,6 +1115,8 @@ def make_graph(var, params=None) -> Graph:
 
     # make clusters
     graph.cluster_map, graph.cluster_links = make_clusters(graph)
+    if len(graph.cluster_map.keys()) <= 1:
+        graph.cluster_links.append([0, 0])
 
     # graph meta
     graph.max_level = max_level
@@ -1135,9 +1145,18 @@ def make_clusters(graph):
 
 def get_graph(model, input=None):
     # FIXME: (automatic) find `input` size (just arr?) / (32, 1, 31, 31)
-    input_shape = input if input else (3, 32, 32)
-    x = torch.randn(32, *input_shape)
-    graph = make_graph(model(x), params=dict(model.named_parameters()))
+    graph = None
+    input_shape = [input] if input else [(3, 32, 32), (1, 31, 31)]
+    for _input_shape in input_shape:
+        x = torch.randn(32, *_input_shape)
+        try:
+            graph = make_graph(model(x), params=dict(model.named_parameters()))
+            break
+        except Exception as err:
+            print("ERROR", err)
+            continue
+    if not graph:
+        raise Exception("something really wrong!")
     return graph
 
 
