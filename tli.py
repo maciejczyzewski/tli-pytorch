@@ -55,6 +55,9 @@ import collections
 import os
 import random
 import sys
+# FIXME: repair config "reinit" case
+from copy import copy
+from typing import Dict, List
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -68,11 +71,23 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPRegressor
 from torch.autograd import Variable
-from typing import Tuple, List, Any, Union, Dict
 
 ################################################################################
 # API
 ################################################################################
+
+
+def apply_tli(model, teacher=None):
+    model_teacher = str_to_model(teacher)
+    transfer(model_teacher, model)
+    return model
+
+
+def get_tli_score(model_from, model_to):
+    model_a = str_to_model(model_from)
+    model_b = str_to_model(model_to)
+    sim, _, _, _ = transfer(model_a, model_b)
+    return sim
 
 
 def get_model_timm(name="dla46x_c"):
@@ -96,22 +111,16 @@ def str_to_model(name):
     return model
 
 
-def apply_tli(model, teacher=None):
-    model_teacher = str_to_model(teacher)
-    transfer(model_teacher, model)
-    return model
-
-
-def get_tli_score(model_from, model_to):
-    model_a = str_to_model(model_from)
-    model_b = str_to_model(model_to)
-    score_ab = transfer(model_a, model_b)
-    score_ba = transfer(model_b, model_a)
-    sim = (score_ab + score_ba) / 2
-    print(
-        f"[score_ab={round(score_ab, 2):6} score_ba={round(score_ba, 2):6} | sim={round(sim, 2):6}]"
-    )
-    return sim
+# def get_tli_score(model_from, model_to):
+#     model_a = str_to_model(model_from)
+#     model_b = str_to_model(model_to)
+#     score_ab = transfer(model_a, model_b)
+#     score_ba = transfer(model_b, model_a)
+#     sim = (score_ab + score_ba) / 2
+#     print(
+#         f"[score_ab={round(score_ab, 2):6} score_ba={round(score_ba, 2):6} | sim={round(sim, 2):6}]"
+#     )
+#     return sim
 
 
 ################################################################################
@@ -488,18 +497,18 @@ CONFIG = TLIConfig(
             dimensions=embedding_dim
         ),  # FIXME: use xNetMF
         "autoencoder": MLPRegressor(
-            max_iter=100//3,  # FIXME: best 50
+            max_iter=100 // 3,  # FIXME: best 50
             early_stopping=False,
             activation="relu",
             solver="adam",
             tol=0.0001,
-            hidden_layer_sizes=(125,25,), # 125, 25
+            hidden_layer_sizes=(125, 25,),  # 125, 25
             warm_start=True,
             learning_rate_init=0.001,
             alpha=0.001,
             verbose=True,
         ),
-        "test_size": 0.05, # FIXME: this is important!
+        "test_size": 0.05,  # FIXME: this is important!
         "samples_per_tensor": 5,
     }
 )
@@ -569,8 +578,8 @@ def F_architecture(graph, mlb=None):
         if _lvl:
             _vec.append(_lvl)
         vec.append(_vec)
-        #vec.append(list(node.name.replace(".weight", "").replace(".bias", "")))
-        #vec.append(node.name.split("."))
+        # vec.append(list(node.name.replace(".weight", "").replace(".bias", "")))
+        # vec.append(node.name.split("."))
     vec = mlb.transform(vec)
     for i, (idx, node) in enumerate(
         graph.nodes.items()
@@ -578,14 +587,16 @@ def F_architecture(graph, mlb=None):
         _shape4 = nn.ConstantPad1d((0, 4 - len(node.size)), 0.0)(
             torch.tensor(node.size)
         )
-        shape = __shape_score(_shape4.type(torch.FloatTensor), (100, 1, 1,
-                                                                1))
+        shape = __shape_score(_shape4.type(torch.FloatTensor), (100, 1, 1, 1))
         shape4 = _shape4.type(torch.FloatTensor) / torch.max(1 + _shape4)
         _level_rev = (graph.max_level - node.level) / graph.max_level
         _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
         _type = 0 if ".bias" in node.name else 1
         N[idx] = np.array(
-            [shape] + shape4.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
+            [shape]
+            + shape4.tolist()
+            + [_cluster_rev, _level_rev, _type]
+            + vec[i].tolist()
             #   shape.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
         )
 
@@ -663,13 +674,13 @@ def gen_dataset(graph, P, S, N):
             N_dist = np.linalg.norm(N[idx] - N[r_idx])
 
             if N_dist <= 1:
-                N_bonus = (1-N_dist)/4
+                N_bonus = (1 - N_dist) / 4
 
             X.append(__q(q_src, q_dst))
             y.append(
-                N_bonus +
-                0.25 +
-                + 0.5 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
+                N_bonus
+                + 0.25
+                + +0.5 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
             )
 
         # === CASE 3: other cluster, W
@@ -687,18 +698,18 @@ def gen_dataset(graph, P, S, N):
             N_dist = np.linalg.norm(N[idx] - N[r_idx])
 
             if N_dist <= 1:
-                N_bonus = (1-N_dist)/4
+                N_bonus = (1 - N_dist) / 4
 
             S_bonus = 0
             S_dist = np.linalg.norm(S[idx] - S[r_idx])
 
             if S_dist <= 1:
-                S_bonus = (1-S_dist)/4
+                S_bonus = (1 - S_dist) / 4
 
             X.append(__q(q_src, q_dst))
             y.append(
-                N_bonus/2 +
-                S_bonus/2
+                N_bonus / 2
+                + S_bonus / 2
                 + 0.25 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
             )
 
@@ -719,7 +730,17 @@ def gen_dataset(graph, P, S, N):
     return X, y
 
 
-def transfer(model_src, model_dst, debug=False):
+def transfer(model_src, model_dst=None, teacher=None, debug=False):
+    # FIXME: replace str to model if needed
+    if model_src and model_dst:
+        # API: v2
+        pass
+    elif not model_dst and teacher:
+        # API: v1
+        model_src, model_dst = teacher, model_src
+    else:
+        raise Exception("where is teacher?! is this a joke?")
+
     graph_src = get_graph(model_src)
     graph_dst = get_graph(model_dst)
 
@@ -764,7 +785,7 @@ def transfer(model_src, model_dst, debug=False):
 
     # https://scikit-learn.org/stable/modules/generated/sklearn.semi_supervised.SelfTrainingClassifier.html#sklearn.semi_supervised.SelfTrainingClassifier
 
-    model = CONFIG.autoencoder
+    model = copy(CONFIG.autoencoder)
     model.fit(X1, y1)
     model.fit(X2, y2)
     model.fit(X_train, y_train)
@@ -783,12 +804,13 @@ def transfer(model_src, model_dst, debug=False):
     # FIXME: move to [fn_matcher, fn_scorer]
 
     def __norm_weights(graph):
-        arr, imap = [], {}
-        for i, (idx, node) in enumerate(graph.nodes.items()):
+        arr, imap, i = [], {}, 0
+        for _, (idx, node) in enumerate(graph.nodes.items()):
             if node.type != "W":
                 continue
             arr.append(idx)
-            imap[i] = idx
+            imap[idx] = i
+            i += 1
         return arr, imap
 
     src_arr, src_map = __norm_weights(graph_src)
@@ -838,7 +860,7 @@ def transfer(model_src, model_dst, debug=False):
             #             not_same_class = False
             #             break
 
-            if dst_type != src_type: # or not_same_class:
+            if dst_type != src_type:  # or not_same_class:
                 scores[src_i, dst_j] = 0
 
         y_hat = model.predict(q_arr)
@@ -854,13 +876,14 @@ def transfer(model_src, model_dst, debug=False):
     ##############################################
 
     seen = set()
+    all_scores = []
     error_n, error_sum = 0, 0
-
     for j, idx_dst in enumerate(dst_arr):
         node_dst = graph_dst.nodes[idx_dst]
 
         idx_src = remap[idx_dst]
-        score = 0  # scores[src_i[idx_src], dst_i[idx_]]
+        score = scores[src_map[idx_src], j]  # src_i, dst_i
+        all_scores.append(score)
 
         name_src = graph_src.nodes[idx_src].name
         name_dst = node_dst.name
@@ -879,11 +902,14 @@ def transfer(model_src, model_dst, debug=False):
         seen.add(idx_src)
         error_n += 1
 
+    sim = max(0, min(1, np.mean(all_scores)))
+
     print("=== MATCH =================")
     print(f" LOSS --> {loss}")
     n = len(graph_src.nodes.keys())
-    print(f" SEEN --> {len(seen):5}/{n:5} | {round(len(seen)/n,2)}")
-    print(f"ERROR --> {error_sum:5}/{error_n:5} | {round(error_sum/error_n,2)}")
+    print(f"  SIM --> \x1b[0;34;40m{round(sim, 4)}\x1b[0m")
+    print(f" SEEN --> {len(seen):5} / {n:5} | {round(len(seen)/n,2)}")
+    print(f"ERROR --> {error_sum:5} / {error_n:5} | {round(error_sum/error_n,2)}")
     print("===========================")
 
     #############################################
@@ -896,7 +922,22 @@ def transfer(model_src, model_dst, debug=False):
     if debug:
         show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
-    return remap, graph_src, graph_dst
+    p_src_ref = {}
+    for name, param in model_src.named_parameters():
+        p_src_ref[name] = param
+    p_dst_ref = {}
+    for name, param in model_dst.named_parameters():
+        p_dst_ref[name] = param
+
+    with torch.no_grad():
+        for idx_dst, idx_src in remap.items():
+            node_src = graph_src.nodes[idx_src]
+            node_dst = graph_dst.nodes[idx_dst]
+            p_src = p_src_ref[node_src.name]
+            p_dst = p_dst_ref[node_dst.name]
+            fn_inject(p_src, p_dst)
+
+    return sim, remap, graph_src, graph_dst
 
 
 ################################################################################
@@ -1100,22 +1141,25 @@ def get_graph(model, input=None):
     return graph
 
 
-# def get_idx_to_layers_mapping(model: nn.Module, graph: Graph) -> Dict[int, nn.Module]:
-#     names_to_layers_mapping = {}
-#     def dfs(model: nn.Module, name_prefix: List[str]):
-#         for child_name, child in model.named_children():
-#             dfs(child, name_prefix + [child_name])
-#         names_to_layers_mapping[".".join(name_prefix)] = model
-#     dfs(model, [])
+def get_idx_to_layers_mapping(model: nn.Module, graph: Graph) -> Dict[int, nn.Module]:
+    names_to_layers_mapping = {}
 
-#     ids_to_layers_mapping = {}
-#     for node in graph.nodes.values():
-#         if node.type == "W":
-#             node_name = node.name.replace(".weight", "").replace(".bias", "")
-#             layer = names_to_layers_mapping[node_name]
-#             ids_to_layers_mapping[node.idx] = layer
+    def dfs(model: nn.Module, name_prefix: List[str]):
+        for child_name, child in model.named_children():
+            dfs(child, name_prefix + [child_name])
+        names_to_layers_mapping[".".join(name_prefix)] = model
 
-#     return ids_to_layers_mapping
+    dfs(model, [])
+
+    ids_to_layers_mapping = {}
+    for node in graph.nodes.values():
+        if node.type == "W":
+            node_name = node.name.replace(".weight", "").replace(".bias", "")
+            layer = names_to_layers_mapping[node_name]
+            ids_to_layers_mapping[node.idx] = layer
+
+    return ids_to_layers_mapping
+
 
 ################################################################################
 # Visualization
@@ -1305,41 +1349,51 @@ if __name__ == "__main__":
         model_debug = get_model_debug(seed=3, channels=3, classes=10)
         model_unet = ResNetUNet(n_class=6)
 
-    if False: # 8 / 158
+    if False:  # 8 / 158
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("mnasnet_100")
 
-    if False: # 0 / 149
+    if False:  # 0 / 149
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False: # 45 / 194
+    if False:  # 45 / 194
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False: # 0 / 194
+    if False:  # 0 / 194
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False: # 1 / 149
+    if False:  # 1 / 149
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False: # 7 / 249
+    if False:  # 7 / 249
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if False: # 100 / 300
+    if False:  # 100 / 300
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
-    if True: # 28 / 249
+    if False:  # 28 / 249
         model_A = get_model_timm("mixnet_m")
         model_B = get_model_timm("mixnet_s")
 
-    if False: # 103 / 213
+    if True:  # 103 / 213
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
 
-    # model_A = get_model_timm("regnetx_002")
+    if False:  # not comparable
+        model_A = get_model_timm("regnetx_002")
+        model_B = get_model_timm("efficientnet_lite0")
+
     transfer(model_A, model_B, debug=True)  # tli sie
+
+    # FIXME: normalize score [0, 1], maybe mean?
+    # model_A = get_model_timm("efficientnet_lite0")
+    # model_B = get_model_timm("efficientnet_lite1")
+    # sim_ab = get_tli_score(model_A, model_B)
+    # sim_ba = get_tli_score(model_B, model_A)
+    # print(f"sim_ab = {round(sim_ab, 4)} | sim_ba = {round(sim_ba, 4)}")
