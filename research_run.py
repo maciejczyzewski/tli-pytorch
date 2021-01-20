@@ -504,13 +504,12 @@ if __name__ == "__main__":
     get_list_of_models()
 
     # === debug: only for testing framework ===
-    from exp_debug import experiment_debug
-
-    experiment_debug()
+    # from exp_debug import experiment_debug
+    # experiment_debug()
 
     # === EXP 1: basic use case ===
-    # from exp_1 import experiment_1, EXP_1_CIFAR100
-    # experiment_1(EXP_1_CIFAR100)
+    from exp_1 import experiment_1, EXP_1_CIFAR100
+    experiment_1(EXP_1_CIFAR100)
 
     # FIXME: [EXP 2]
     # from exp_2 import experiment_2, EXP_2_CIFAR100

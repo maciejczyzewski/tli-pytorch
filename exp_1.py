@@ -120,7 +120,6 @@ def experiment_1(config_base):
         ncol=1,
         ylim=[0, 0.5],
     )
-    sys.exit()
 
     # accuracy
     plot_key(

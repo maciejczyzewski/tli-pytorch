@@ -72,14 +72,17 @@ from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPRegressor
 from torch.autograd import Variable
 
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda" if use_cuda else "cpu")
+
 ################################################################################
 # API
 ################################################################################
 
 
 def apply_tli(model, teacher=None):
-    print(f"[TLI]   model={model}")
-    print(f"[TLI] teacher={teacher}")
+    # print(f"[TLI]   model={model}")
+    # print(f"[TLI] teacher={teacher}")
     model_teacher = str_to_model(teacher)
     transfer(model_teacher, model)
     return model
@@ -130,7 +133,7 @@ def str_to_model(name):
 ################################################################################
 
 
-def apply_reset(model):
+def apply_hard_reset(model):
     for layer in model.modules():
         if hasattr(layer, "reset_parameters"):
             nn.init.zeros_(layer.weight)
@@ -504,6 +507,9 @@ CONFIG = TLIConfig(
             activation="relu",
             solver="adam",
             tol=0.0001,
+            ##############################################
+            # n_iter_no_change=100, # FIXME: is that good?
+            ##############################################
             hidden_layer_sizes=(125, 25,),  # 125, 25
             warm_start=True,
             learning_rate_init=0.001,
@@ -1146,10 +1152,12 @@ def make_clusters(graph):
 def get_graph(model, input=None):
     # FIXME: (automatic) find `input` size (just arr?) / (32, 1, 31, 31)
     graph = None
-    input_shape = [input] if input else [(3, 32, 32), (1, 31, 31)]
+    input_shape = [input] if input else [(3, 32, 32), (1, 31, 31), (3, 224, 224)]
     for _input_shape in input_shape:
         x = torch.randn(32, *_input_shape)
         try:
+            x = x.to(device) # FIXME: more pretty?
+            model = model.to(device)
             graph = make_graph(model(x), params=dict(model.named_parameters()))
             break
         except Exception as err:
