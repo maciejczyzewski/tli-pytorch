@@ -491,12 +491,12 @@ class TLIConfig(object):
         self.__dict__.update(adict)
 
 
-embedding_dim = 3  # best 6, 5 / FIXME: was 9, how to find?
+embedding_dim = 4  # best 6, 5 / FIXME: was 9, how to find?
 CONFIG = TLIConfig(
     {
         # FIXME: move outsite? --> lazy_load?
         "node_embedding_attributed": FeatherNode(
-            eval_points=2, order=2, reduction_dimensions=32
+            eval_points=3, order=3, reduction_dimensions=32
         ),
         "node_embedding_neighbourhood": NetMF(
             dimensions=embedding_dim
@@ -1453,7 +1453,7 @@ if __name__ == "__main__":
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if True:  # 47, 53, 49
+    if False:  # 47, 53, 49, 45
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
@@ -1477,15 +1477,15 @@ if __name__ == "__main__":
         model_A = get_model_timm("mixnet_m")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # 81, 74
+    if True:  # 81, 74, 73
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
 
-    if False:  # Q: 66, 26, 24
+    if False:  # Q: 66, 26, 24, 31, 25
         model_A = get_model_timm("tf_efficientnet_b0_ap")
         model_B = get_model_timm("mnasnet_100")
 
-    if False: # Q: 76, 61, 60
+    if False: # Q: 76, 61, 60, 58, 57
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mnasnet_100")
 
