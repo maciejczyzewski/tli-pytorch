@@ -496,7 +496,7 @@ CONFIG = TLIConfig(
     {
         # FIXME: move outsite? --> lazy_load?
         "node_embedding_attributed": FeatherNode(
-            eval_points=3, order=3, reduction_dimensions=32
+            eval_points=2, order=4, reduction_dimensions=32
         ),
         "node_embedding_neighbourhood": NetMF(
             dimensions=embedding_dim
@@ -1445,47 +1445,47 @@ if __name__ == "__main__":
     # FIXME: usunac z dataset "F"
     # FIXME: zmienic dlugosc embedingow
 
-    if False:  # 8, 11
+    if False:  # 8, 11, 9
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("mnasnet_100")
 
-    if False:  # 0, 5
+    if False:  # 0, 5, 0
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # 47, 53, 49, 45
+    if False:  # 47, 53, 49, 45, 47
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # 9, 9
+    if False:  # 9, 9, 4
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # 2, 5
+    if False:  # 2, 5, 0
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # 5, 15
+    if False:  # 5, 15, 4
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # 83, 77
+    if True:  # 83, 77, 85
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
-    if False:  # 26, 23
+    if False:  # 26, 23, 26
         model_A = get_model_timm("mixnet_m")
         model_B = get_model_timm("mixnet_s")
 
-    if True:  # 81, 74, 73
+    if False:  # 81, 74, 73, 71, 69
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
 
-    if False:  # Q: 66, 26, 24, 31, 25
+    if False:  # Q: 66, 26, 24, 31, 25, 24
         model_A = get_model_timm("tf_efficientnet_b0_ap")
         model_B = get_model_timm("mnasnet_100")
 
-    if False: # Q: 76, 61, 60, 58, 57
+    if False: # Q: 76, 61, 60, 58, 57, 57
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mnasnet_100")
 
