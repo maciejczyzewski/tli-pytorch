@@ -598,14 +598,16 @@ def F_architecture(graph, mlb=None):
         shape = __shape_score(_shape4.type(torch.FloatTensor), (100, 1, 1, 1))
         shape4 = _shape4.type(torch.FloatTensor) / torch.max(1 + _shape4)
         _level_rev = (graph.max_level - node.level) / graph.max_level
+        _level_rev2 = (node.level) / graph.max_level
         _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
+        _cluster_rev2 = (node.cluster_idx) / graph.max_idx
         _type = 0 if ".bias" in node.name else 1
         N[idx] = np.array(
             [shape]
             + shape4.tolist()
-            + [_cluster_rev, _level_rev, _type]
+            # + [_cluster_rev, _level_rev, _type]
+            + [_cluster_rev, _cluster_rev2, _level_rev, _level_rev2, _type]
             + vec[i].tolist()
-            #   shape.tolist() + [_cluster_rev, _level_rev, _type] + vec[i].tolist()
         )
 
     print("(encode_graph ended)")
@@ -799,8 +801,8 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     # https://scikit-learn.org/stable/modules/generated/sklearn.semi_supervised.SelfTrainingClassifier.html#sklearn.semi_supervised.SelfTrainingClassifier
 
     model = copy(CONFIG.autoencoder)
-    model.fit(X1, y1)
-    model.fit(X2, y2)
+    # model.fit(X1, y1)
+    # model.fit(X2, y2)
     model.fit(X_train, y_train)
 
     y_hat = model.predict(X_test)
@@ -1376,45 +1378,55 @@ if __name__ == "__main__":
         model_debug = get_model_debug(seed=3, channels=3, classes=10)
         model_unet = ResNetUNet(n_class=6)
 
-    if False:  # 8 / 158
+    if False:  # 8 / 158 | 8 / 158
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("mnasnet_100")
 
-    if False:  # 0 / 149
+    if False:  # 0 / 149 | 4 / 149
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # 45 / 194
+    if False:  # 45 / 194 | 45 / 194
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # 0 / 194
+    if False:  # 0 / 194 | 1 / 194
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # 1 / 149
+    if False:  # 1 / 149 | 2 / 149
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # 7 / 249
+    if False:  # 7 / 249 | 3 / 249
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # 100 / 300
+    if False:  # 100 / 300 | 88 / 305 | 84 / 305
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
-    if False:  # 28 / 249
+    if False:  # 28 / 249 | 23 / 249 | 26 / 249
         model_A = get_model_timm("mixnet_m")
         model_B = get_model_timm("mixnet_s")
 
-    if True:  # 103 / 213
+    if False:  # 103 / 213 | 110 / 213 | 107 / 213
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
+
+    if False:  # 68 / 158 | 66 / 158 | 62 / 158
+        model_A = get_model_timm("tf_efficientnet_b0_ap")
+        model_B = get_model_timm("mnasnet_100")
+
+    if False: #  100 / 158 | 104 / 158 | 94 / 158
+        model_A = get_model_timm("mixnet_s")
+        model_B = get_model_timm("mnasnet_100")
 
     if False:  # not comparable
         model_A = get_model_timm("regnetx_002")
         model_B = get_model_timm("efficientnet_lite0")
+
+    # FIXME: automatic report
 
     transfer(model_A, model_B, debug=True)  # tli sie
 
