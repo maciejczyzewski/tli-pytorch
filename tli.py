@@ -847,7 +847,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     mlb.fit(vec) # FIXME: 50
     _l1 = len(graph_dst.nodes.keys())
     _l2 = len(graph_dst.cluster_map.keys())
-    print(_l2, _l1)
+    # print(_l2, _l1)
     mfa = Isomap(n_components=30, n_neighbors=50, p=3) # 30 best
     _vec = mlb.transform(vec)
     mfa.fit(_vec)
@@ -975,6 +975,16 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
 
     ##############################################
 
+    # for size in np.arange(0.10, 0.50, 0.10):
+    #     window_size = size
+    #     for _dst_j, idx_dst in enumerate(dst_arr[::-1]):
+    #         dst_j = m - _dst_j - 1
+    #         ith = dst_j / m
+    #         shift = max(int(ith*n - window_size*n), 0)
+    #         i = np.argmax(scores[shift:shift+int(window_size*n), dst_j])+shift
+    #         if idx_dst not in remap and scores[i, dst_j] > 1 - size:
+    #             remap[idx_dst] = src_arr[i]
+
     beta = 0.5
     smap = copy(scores)
     for _ in range(n*m):
@@ -982,6 +992,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         smap[i, :] *= beta
         # smap[:, j] *= 0.9 # FIXME
         if dst_arr[j] not in remap:
+            smap[:, j] = 0
             remap[dst_arr[j]] = src_arr[i]
 
     window_size = 0.25
@@ -989,7 +1000,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         dst_j = m - _dst_j - 1
         ith = dst_j / m
         shift = max(int(ith*n - window_size*n), 0)
-        i = np.argmax(scores[shift:, dst_j])+shift
+        i = np.argmax(smap[shift:, dst_j])+shift
         if idx_dst not in remap:
             remap[idx_dst] = src_arr[i]
 
@@ -1043,20 +1054,20 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         # FIXME: do pracy dodac rysunek z sieci typu "debug"
         show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
-    p_src_ref = {}
-    for name, param in model_src.named_parameters():
-        p_src_ref[name] = param
-    p_dst_ref = {}
-    for name, param in model_dst.named_parameters():
-        p_dst_ref[name] = param
+    # p_src_ref = {}
+    # for name, param in model_src.named_parameters():
+    #     p_src_ref[name] = param
+    # p_dst_ref = {}
+    # for name, param in model_dst.named_parameters():
+    #     p_dst_ref[name] = param
 
-    with torch.no_grad():
-        for idx_dst, idx_src in remap.items():
-            node_src = graph_src.nodes[idx_src]
-            node_dst = graph_dst.nodes[idx_dst]
-            p_src = p_src_ref[node_src.name]
-            p_dst = p_dst_ref[node_dst.name]
-            fn_inject(p_src, p_dst)
+    # with torch.no_grad():
+    #     for idx_dst, idx_src in remap.items():
+    #         node_src = graph_src.nodes[idx_src]
+    #         node_dst = graph_dst.nodes[idx_dst]
+    #         p_src = p_src_ref[node_src.name]
+    #         p_dst = p_dst_ref[node_dst.name]
+    #         fn_inject(p_src, p_dst)
 
     return sim, remap, graph_src, graph_dst
 
@@ -1507,7 +1518,7 @@ if __name__ == "__main__":
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # [83, 77, 85, 78] 82
+    if True:  # [83, 77, 85, 78] 82
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
@@ -1527,7 +1538,7 @@ if __name__ == "__main__":
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mnasnet_100")
 
-    if True:  # not comparable
+    if False:  # not comparable
         model_A = get_model_timm("regnetx_002")
         model_B = get_model_timm("efficientnet_lite0")
 
