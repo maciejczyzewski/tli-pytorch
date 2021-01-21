@@ -579,13 +579,7 @@ def F_architecture(graph, mlb=None, mfa=None):
     N = {}  # FIXME: move to fn_node_encoder?
     vec = []
     for idx, node in graph.nodes.items():
-        # FIXME: ??? encode type of layer ??? class
-        _vec = list(node.name.replace(".weight", "").replace(".bias", ""))
-        _lvl = [s for s in _vec if s.isdigit()]
-        _lvl = "".join(_lvl)
-        if _lvl:
-            _vec.append(_lvl)
-        vec.append(_vec)
+        vec.append(__encode(node.name))
         # vec.append(list(node.name.replace(".weight", "").replace(".bias", "")))
         # vec.append(node.name.split("."))
     vec = mlb.transform(vec)
@@ -615,9 +609,10 @@ def F_architecture(graph, mlb=None, mfa=None):
                _level_rev, _level_rev2, _type]
         ))
     from sklearn import preprocessing
+    _pp = preprocessing.QuantileTransformer() # BEST
     # _pp = preprocessing.QuantileTransformer() # 83 / 158
     # _pp = preprocessing.Normalizer(norm='l2') # 77 / 158
-    _pp = preprocessing.Normalizer(norm='l1') # 76 / 158
+    # _pp = preprocessing.Normalizer(norm='l1') # 76 / 158
     # _pp = preprocessing.Normalizer(norm='max') # 79 / 158
     # _pp = preprocessing.PowerTransformer() # 80 / 158
     # _pp = preprocessing.MaxAbsScaler() # 77 / 158
@@ -638,7 +633,9 @@ def F_architecture(graph, mlb=None, mfa=None):
 
 
 def __q(a, b):
-    return np.concatenate((a, b), axis=0)
+    return np.array(a) * np.array(b)
+    # return np.array(a) * np.array(b) # 60 / 158
+    # return np.concatenate((a, b), axis=0) # 65 / 158
 
 
 def __shape_score(s1, s2):
@@ -766,6 +763,33 @@ def gen_dataset(graph, P, S, N):
 
     return X, y
 
+# _vec = list(x.replace(".weight", "").replace(".bias", ""))
+# # print(_vec)
+# _lvl = [s for s in _vec if s.isdigit()]
+# _lvl = "".join(_lvl)
+# _vec = list(set(_vec))
+# if _lvl:
+#     _vec.append(_lvl)
+
+def __encode(x):
+    x = x.replace(".weight", "").replace(".bias", "")
+    x = x.replace("blocks", "")
+    if "Backward" in x:
+        x = ""
+    # print(x)
+    _vec = list(x) # + [x]
+    # minl, maxl = 1, 2
+    # t = x
+    # _vec = [t[i:i+j] for i in range(len(t)-minl) for j in range(minl,maxl+1)]
+    # print(_vec)
+    _lvl = [s for s in _vec if s.isdigit()]
+    _lvl = "".join(_lvl)
+    _vec = list(set(_vec))
+    if _lvl:
+        _vec.append(_lvl)
+        # for i in range(2, len(_lvl)+1):
+        #     _vec.append(_lvl[0:i])
+    return _vec
 
 def transfer(model_src, model_dst=None, teacher=None, debug=False):
     # FIXME: replace str to model if needed
@@ -791,23 +815,20 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         show_graph(graph_dst, ver=3, path="__tli_dst")
 
     from sklearn.preprocessing import MultiLabelBinarizer
-    from sklearn.manifold import TSNE, Isomap
+    from sklearn.manifold import Isomap
 
     mlb = MultiLabelBinarizer()
 
     vec = []
     # FIXME: mutual
     for idx, node in graph_dst.nodes.items():
-        _vec = list(node.name.replace(".weight", "").replace(".bias", ""))
-        _lvl = [s for s in _vec if s.isdigit()]
-        _lvl = "".join(_lvl)
-        if _lvl:
-            _vec.append(_lvl)
-        vec.append(_vec)
+        # if node.type != "W":
+        #    continue
+        vec.append(__encode(node.name))
     #for idx, node in graph_dst.nodes.items():
     #     vec.append(node.name.split("."))
     mlb.fit(vec)
-    mfa = Isomap(n_components=30)
+    mfa = Isomap(n_components=30) # 30 best
     _vec = mlb.transform(vec)
     mfa.fit(_vec)
 
@@ -912,10 +933,24 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
 
     ##############################################
 
-    for dst_j, idx_dst in enumerate(dst_arr):
-        i = np.argmax(scores[:, dst_j])
-        idx_src = src_arr[i]
-        remap[idx_dst] = idx_src
+    beta = 0.99
+    smap = copy(scores)
+    for _ in range(n*m):
+        i, j = np.unravel_index(smap.argmax(), smap.shape)
+        p_score = smap[i, j]
+        smap[i, :] *= beta
+        # smap[:, j] *= 0.9 # FIXME
+        if dst_arr[j] not in remap and p_score > 0.5:
+            remap[dst_arr[j]] = src_arr[i]
+
+    window_size = 0.25
+    for _dst_j, idx_dst in enumerate(dst_arr[::-1]):
+        dst_j = m - _dst_j - 1
+        ith = dst_j / m
+        shift = max(int(ith*n - window_size*n), 0)
+        i = np.argmax(scores[shift:, dst_j])+shift
+        if idx_dst not in remap:
+            remap[idx_dst] = src_arr[i]
 
     ##############################################
 
@@ -1407,47 +1442,50 @@ if __name__ == "__main__":
         model_debug = get_model_debug(seed=3, channels=3, classes=10)
         model_unet = ResNetUNet(n_class=6)
 
-    if False:  # [8 / 158 | 8 / 158] | 12 / 158 | 8 / 158
+    # FIXME: usunac z dataset "F"
+    # FIXME: zmienic dlugosc embedingow
+
+    if False:  # 8, 11
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("mnasnet_100")
 
-    if False:  # [0 / 149 | 4 / 149] | 2 / 149 | 0 / 149 | 
+    if False:  # 0, 5
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # [45 / 194 | 45 / 194] | 47 / 194 | 45 / 194 | 47 / 194
+    if True:  # 47, 53
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # [0 / 194 | 1 / 194] | 5 / 194 | 4 / 194 | 9 / 194
+    if False:  # 9, 9
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # [1 / 149 | 2 / 149] | 0 / 149 | 2 / 149 | 2 / 149
+    if False:  # 2, 5
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # [7 / 249 | 3 / 249] | 9 / 249 | 5 / 249
+    if False:  # 5, 15
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # [100 / 300 | 88 / 305 | 84 / 305] | 78 / 305 | 83 / 305
+    if False:  # 83, 77
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
-    if False:  # [28 / 249 | 23 / 249 | 26 / 249] | 25 / 249 | 26 / 249
+    if False:  # 26, 23
         model_A = get_model_timm("mixnet_m")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # [103 / 213 | 110 / 213 | 107 / 213] | 79 / 213 | 81  / 214
+    if False:  # 81, 74
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
 
-    if False:  # [68 / 158 | 66 / 158 | 62 / 158] | 49 / 158 | 66 / 158
+    if False:  # 66, 26
         model_A = get_model_timm("tf_efficientnet_b0_ap")
         model_B = get_model_timm("mnasnet_100")
 
-    if True: #  [100 / 158 | 104 / 158 | 94 / 158] | 81 / 158 | 76 / 158
+    if False: # 76, 61
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mnasnet_100")
 
