@@ -502,7 +502,7 @@ CONFIG = TLIConfig(
             dimensions=embedding_dim
         ),  # FIXME: use xNetMF
         "autoencoder": MLPRegressor(
-            max_iter=100 // 3,  # FIXME: best 50
+            max_iter=100, # 100 // 3,  # FIXME: best 50
             early_stopping=False,
             activation="relu",
             solver="adam",
@@ -590,6 +590,7 @@ def F_architecture(graph, mlb=None, mfa=None):
         # vec.append(node.name.split("."))
     vec = mlb.transform(vec)
     vec = mfa.transform(vec)
+    vec_final = []
     for i, (idx, node) in enumerate(
         graph.nodes.items()
     ):  # FIXME: better way? [pad len 4]
@@ -598,18 +599,39 @@ def F_architecture(graph, mlb=None, mfa=None):
         )
         shape = __shape_score(_shape4.type(torch.FloatTensor), (100, 1, 1, 1))
         shape4 = _shape4.type(torch.FloatTensor) / torch.max(1 + _shape4)
+        _idx_rev = (graph.max_idx - node.idx) / graph.max_idx
+        _idx_rev2 = (node.idx) / graph.max_idx
         _level_rev = (graph.max_level - node.level) / graph.max_level
         _level_rev2 = (node.level) / graph.max_level
         _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
         _cluster_rev2 = (node.cluster_idx) / graph.max_idx
         _type = 0 if ".bias" in node.name else 1
-        N[idx] = np.array(
+        # N[idx] = np.array(
+        vec_final.append(np.array(
             [shape]
             + shape4.tolist()
-            # + [_cluster_rev, _level_rev, _type]
-            + [_cluster_rev, _cluster_rev2, _level_rev, _level_rev2, _type]
-            + vec[i].tolist()
-        )
+            + [_idx_rev, _idx_rev2, \
+               _cluster_rev, _cluster_rev2, \
+               _level_rev, _level_rev2, _type]
+        ))
+    from sklearn import preprocessing
+    # _pp = preprocessing.QuantileTransformer() # 83 / 158
+    # _pp = preprocessing.Normalizer(norm='l2') # 77 / 158
+    _pp = preprocessing.Normalizer(norm='l1') # 76 / 158
+    # _pp = preprocessing.Normalizer(norm='max') # 79 / 158
+    # _pp = preprocessing.PowerTransformer() # 80 / 158
+    # _pp = preprocessing.MaxAbsScaler() # 77 / 158
+    # _pp = preprocessing.RobustScaler() # 78 / 158
+    # _pp = preprocessing.StandardScaler() # 85 / 158
+    # _pp = preprocessing.KBinsDiscretizer(n_bins=10, encode='ordinal',
+    #                                      strategy='quantile') # 75
+    vec_final = _pp.fit_transform(vec_final)
+
+    for i, (idx, node) in enumerate(
+        graph.nodes.items()
+    ):
+        # print(vec_final[i])
+        N[idx] = np.array(vec_final[i].tolist() + vec[i].tolist())
 
     print("(encode_graph ended)")
     return P, S, N
@@ -785,7 +807,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     #for idx, node in graph_dst.nodes.items():
     #     vec.append(node.name.split("."))
     mlb.fit(vec)
-    mfa = Isomap(n_components=30) #FeatureAgglomeration(n_clusters=30)
+    mfa = Isomap(n_components=30)
     _vec = mlb.transform(vec)
     mfa.fit(_vec)
 
@@ -1385,47 +1407,47 @@ if __name__ == "__main__":
         model_debug = get_model_debug(seed=3, channels=3, classes=10)
         model_unet = ResNetUNet(n_class=6)
 
-    if True:  # [8 / 158 | 8 / 158] | 12 / 158
+    if False:  # [8 / 158 | 8 / 158] | 12 / 158 | 8 / 158
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("mnasnet_100")
 
-    if False:  # [0 / 149 | 4 / 149] | 2 / 149
+    if False:  # [0 / 149 | 4 / 149] | 2 / 149 | 0 / 149 | 
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # [45 / 194 | 45 / 194] | 47 / 194
+    if False:  # [45 / 194 | 45 / 194] | 47 / 194 | 45 / 194 | 47 / 194
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # [0 / 194 | 1 / 194] | 5 / 194
+    if False:  # [0 / 194 | 1 / 194] | 5 / 194 | 4 / 194 | 9 / 194
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # [1 / 149 | 2 / 149] | 0 / 149
+    if False:  # [1 / 149 | 2 / 149] | 0 / 149 | 2 / 149 | 2 / 149
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # [7 / 249 | 3 / 249] | 9 / 249
+    if False:  # [7 / 249 | 3 / 249] | 9 / 249 | 5 / 249
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # [100 / 300 | 88 / 305 | 84 / 305] | 78 / 305
+    if False:  # [100 / 300 | 88 / 305 | 84 / 305] | 78 / 305 | 83 / 305
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
-    if False:  # [28 / 249 | 23 / 249 | 26 / 249] | 25 / 249
+    if False:  # [28 / 249 | 23 / 249 | 26 / 249] | 25 / 249 | 26 / 249
         model_A = get_model_timm("mixnet_m")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # [103 / 213 | 110 / 213 | 107 / 213] | 79 / 213
+    if False:  # [103 / 213 | 110 / 213 | 107 / 213] | 79 / 213 | 81  / 214
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
 
-    if False:  # [68 / 158 | 66 / 158 | 62 / 158] | 49 / 158
+    if False:  # [68 / 158 | 66 / 158 | 62 / 158] | 49 / 158 | 66 / 158
         model_A = get_model_timm("tf_efficientnet_b0_ap")
         model_B = get_model_timm("mnasnet_100")
 
-    if False: #  [100 / 158 | 104 / 158 | 94 / 158] | 81 / 158
+    if True: #  [100 / 158 | 104 / 158 | 94 / 158] | 81 / 158 | 76 / 158
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mnasnet_100")
 
