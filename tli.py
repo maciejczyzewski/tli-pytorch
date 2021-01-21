@@ -410,7 +410,7 @@ def graph_norm(edges, attr=None):
             rev_mask[normal_id_iter[0]] = idx
             normal_id_iter[0] += 1
 
-    random.shuffle(edges)
+    # random.shuffle(edges)
 
     for a, b in edges:
         __for_single(a)
@@ -419,6 +419,8 @@ def graph_norm(edges, attr=None):
     norm_edges = []
     for a, b in edges:
         norm_edges.append([normal_id_map[a], normal_id_map[b]])
+
+    # norm_edges = sorted(norm_edges)
 
     norm_attr = []
     if attr:
@@ -491,12 +493,12 @@ class TLIConfig(object):
         self.__dict__.update(adict)
 
 
-embedding_dim = 4  # best 6, 5 / FIXME: was 9, how to find?
+embedding_dim = 10  # best 4, 6, 5 / FIXME: was 9, how to find?
 CONFIG = TLIConfig(
     {
         # FIXME: move outsite? --> lazy_load?
-        "node_embedding_attributed": FeatherNode(
-            eval_points=2, order=4, reduction_dimensions=32
+        "node_embedding_attributed": FeatherNode( # 2, 4
+            eval_points=4, order=4, svd_iterations=100, reduction_dimensions=32
         ),
         "node_embedding_neighbourhood": NetMF(
             dimensions=embedding_dim
@@ -510,9 +512,9 @@ CONFIG = TLIConfig(
             ##############################################
             # n_iter_no_change=100, # FIXME: is that good?
             ##############################################
-            hidden_layer_sizes=(125, 25,),  # 125, 25
+            hidden_layer_sizes=(200, 50, 25,),  # 125, 25
             warm_start=True,
-            learning_rate_init=0.001,
+            learning_rate_init=0.0005,
             alpha=0.001,
             verbose=True,
         ),
@@ -591,33 +593,44 @@ def F_architecture(graph, mlb=None, mfa=None):
         _shape4 = nn.ConstantPad1d((0, 4 - len(node.size)), 0.0)(
             torch.tensor(node.size)
         )
-        shape = __shape_score(_shape4.type(torch.FloatTensor), (100, 1, 1, 1))
+        #shape_ab = __shape_score(_shape4.type(torch.FloatTensor), (100, 1, 1, 1))
+        #shape_ba = __shape_score(_shape4.type(torch.FloatTensor), (1, 100, 1, 1))
         shape4 = _shape4.type(torch.FloatTensor) / torch.max(1 + _shape4)
-        _idx_rev = (graph.max_idx - node.idx) / graph.max_idx
-        _idx_rev2 = (node.idx) / graph.max_idx
-        _level_rev = (graph.max_level - node.level) / graph.max_level
-        _level_rev2 = (node.level) / graph.max_level
-        _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
-        _cluster_rev2 = (node.cluster_idx) / graph.max_idx
-        _type = 0 if ".bias" in node.name else 1
+        if shape4[0] > shape4[1]:
+            rot = 1
+        else:
+            rot = 0
+        # _idx_rev = (graph.max_idx - node.idx) / graph.max_idx
+        # _idx_rev2 = (node.idx) / graph.max_idx
+        # _level_rev = (graph.max_level - node.level) / graph.max_level
+        # _level_rev2 = (node.level) / graph.max_level
+        # _cluster_rev = (graph.max_idx - node.cluster_idx) / graph.max_idx
+        # _cluster_rev2 = (node.cluster_idx) / graph.max_idx
+        # _type = 0 if ".bias" in node.name else 1
+        # dotcount = node.name.count('.')
         # N[idx] = np.array(
+        # vec_final.append(np.array(
+        #     [shape]
+        #     + shape4.tolist()
+        #     + [_idx_rev, _idx_rev2, \
+        #        _cluster_rev, _cluster_rev2, \
+        #        _level_rev, _level_rev2, _type]
+        # ))
         vec_final.append(np.array(
-            [shape]
+            # [shape_ab, shape_ba]
+            [rot]
             + shape4.tolist()
-            + [_idx_rev, _idx_rev2, \
-               _cluster_rev, _cluster_rev2, \
-               _level_rev, _level_rev2, _type]
         ))
     from sklearn import preprocessing
-    _pp = preprocessing.QuantileTransformer() # BEST
+    #_pp = preprocessing.QuantileTransformer() # BEST
     # _pp = preprocessing.QuantileTransformer() # 83 / 158
     # _pp = preprocessing.Normalizer(norm='l2') # 77 / 158
     # _pp = preprocessing.Normalizer(norm='l1') # 76 / 158
-    # _pp = preprocessing.Normalizer(norm='max') # 79 / 158
-    # _pp = preprocessing.PowerTransformer() # 80 / 158
-    # _pp = preprocessing.MaxAbsScaler() # 77 / 158
+    # _pp = preprocessing.Normalizer(norm='max') # [78] 79 / 158
+    #_pp = preprocessing.PowerTransformer() # 80 / 158
+    #_pp = preprocessing.MaxAbsScaler() # 77 / 158
     # _pp = preprocessing.RobustScaler() # 78 / 158
-    # _pp = preprocessing.StandardScaler() # 85 / 158
+    _pp = preprocessing.StandardScaler() #XXX 85 / 158
     # _pp = preprocessing.KBinsDiscretizer(n_bins=10, encode='ordinal',
     #                                      strategy='quantile') # 75
     vec_final = _pp.fit_transform(vec_final)
@@ -625,6 +638,7 @@ def F_architecture(graph, mlb=None, mfa=None):
     for i, (idx, node) in enumerate(
         graph.nodes.items()
     ):
+        # FIXME???????? without vec_final?
         # print(vec_final[i])
         N[idx] = np.array(vec_final[i].tolist() + vec[i].tolist())
 
@@ -653,8 +667,8 @@ def gen_dataset(graph, P, S, N):
 
     # FIXME: move to encoder settings? / encoder definition
     for idx, node in graph.nodes.items():
-        # if node.type != "W":  # FIXME: is it good?
-        #    continue
+        if node.type != "W":  # FIXME: is it good?
+            continue
 
         cluster_idx = node.cluster_idx
         # FIXME
@@ -714,7 +728,7 @@ def gen_dataset(graph, P, S, N):
             y.append(
                 N_bonus
                 + 0.25
-                + +0.5 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
+                + 0.5 * __shape_score(graph.nodes[idx].size, graph.nodes[r_idx].size)
             )
 
         # === CASE 3: other cluster, W
@@ -827,8 +841,11 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         vec.append(__encode(node.name))
     #for idx, node in graph_dst.nodes.items():
     #     vec.append(node.name.split("."))
-    mlb.fit(vec)
-    mfa = Isomap(n_components=30) # 30 best
+    mlb.fit(vec) # FIXME: 50
+    _l1 = len(graph_dst.nodes.keys())
+    _l2 = len(graph_dst.cluster_map.keys())
+    print(_l2, _l1)
+    mfa = Isomap(n_components=30, n_neighbors=50, p=3) # 30 best
     _vec = mlb.transform(vec)
     mfa.fit(_vec)
 
@@ -938,9 +955,11 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     for _ in range(n*m):
         i, j = np.unravel_index(smap.argmax(), smap.shape)
         p_score = smap[i, j]
-        smap[i, :] *= beta
+        # smap[i, :] = 0
+        smap[i, :] *= 0.5
+        # smap[i, :] *= beta
         # smap[:, j] *= 0.9 # FIXME
-        if dst_arr[j] not in remap and p_score > 0.5:
+        if dst_arr[j] not in remap:
             remap[dst_arr[j]] = src_arr[i]
 
     window_size = 0.25
@@ -1449,43 +1468,43 @@ if __name__ == "__main__":
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("mnasnet_100")
 
-    if False:  # 0, 5, 0
+    if True:  # 0, 5, 0, 2
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # 47, 53, 49, 45, 47
+    if False:  # 47, 53, 49, 45, 47, 45
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # 9, 9, 4
+    if False:  # 9, 9, 4, 2
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite1")
 
-    if False:  # 2, 5, 0
+    if False:  # 2, 5, 0, 0
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # 5, 15, 4
+    if False:  # [5, 15, 4] 5
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if True:  # 83, 77, 85
+    if False:  # [83, 77, 85, 78] 82
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
-    if False:  # 26, 23, 26
+    if False:  # [26, 23, 26] 22, 21
         model_A = get_model_timm("mixnet_m")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # 81, 74, 73, 71, 69
+    if False:  # [81, 74, 73, 71, 69] 68, 70
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
 
-    if False:  # Q: 66, 26, 24, 31, 25, 24
+    if False:  # Q: [66, 26, 24, 31, 25, 24, 29,] 30, 24
         model_A = get_model_timm("tf_efficientnet_b0_ap")
         model_B = get_model_timm("mnasnet_100")
 
-    if False: # Q: 76, 61, 60, 58, 57, 57
+    if False: # Q: [76, 61, 60, 58, 57, 57, 62] 57, 57, 55
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mnasnet_100")
 
