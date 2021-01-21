@@ -748,16 +748,16 @@ def gen_dataset(graph, P, S, N):
             )
 
         # === CASE 4: ?, F
-        for _ in range(CONFIG.samples_per_tensor):
-            r_idx = __get_node(cluster_idx=None, type="F")
-            r_cluster_idx = graph.nodes[r_idx].cluster_idx
-            if idx == r_idx:
-                continue
+        # for _ in range(CONFIG.samples_per_tensor):
+        #     r_idx = __get_node(cluster_idx=None, type="F")
+        #     r_cluster_idx = graph.nodes[r_idx].cluster_idx
+        #     if idx == r_idx:
+        #         continue
 
-            q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
+        #     q_dst = list(P[r_cluster_idx]) + list(S[r_idx]) + list(N[r_idx])
 
-            X.append(__q(q_src, q_dst))
-            y.append(0)
+        #     X.append(__q(q_src, q_dst))
+        #     y.append(0)
 
     print("DATASET", len(y))
 
@@ -1453,7 +1453,7 @@ if __name__ == "__main__":
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if True:  # 47, 53
+    if True:  # 47, 53, 49
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
@@ -1481,11 +1481,11 @@ if __name__ == "__main__":
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("tf_efficientnet_b0_ap")
 
-    if False:  # 66, 26
+    if False:  # Q: 66, 26, 24
         model_A = get_model_timm("tf_efficientnet_b0_ap")
         model_B = get_model_timm("mnasnet_100")
 
-    if False: # 76, 61
+    if False: # Q: 76, 61, 60
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mnasnet_100")
 
