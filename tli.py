@@ -1402,7 +1402,7 @@ if __name__ == "__main__":
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if False:  # 100 / 300 | 88 / 305 | 84 / 305
+    if True:  # 100 / 300 | 88 / 305 | 84 / 305
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
