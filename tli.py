@@ -807,30 +807,11 @@ def __encode(x):
         #     _vec.append(_lvl[0:i])
     return _vec
 
-def transfer(model_src, model_dst=None, teacher=None, debug=False):
-    # FIXME: replace str to model if needed
-    if model_src and model_dst:
-        # API: v2
-        print("API: V2")
-        pass
-    elif not model_dst and teacher:
-        # API: v1
-        print("API: V1")
-        model_src, model_dst = teacher, model_src
-    else:
-        raise Exception("where is teacher?! is this a joke?")
-
-    graph_src = get_graph(model_src)
-    graph_dst = get_graph(model_dst)
-
+def score_autoencoder(graph_src, graph_dst):
     # src_ids_to_layers_mapping = get_idx_to_layers_mapping(model_src,
     #                                                           graph_src)
     # dst_ids_to_layers_mapping = get_idx_to_layers_mapping(model_dst,
     #                                                           graph_dst)
-
-    if debug:
-        show_graph(graph_src, ver=3, path="__tli_src")
-        show_graph(graph_dst, ver=3, path="__tli_dst")
 
     from sklearn.preprocessing import MultiLabelBinarizer
     from sklearn.manifold import Isomap
@@ -899,6 +880,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
 
     y_hat = model.predict(X_test)
     loss = mean_squared_error(y_test, y_hat)
+    print(f" LOSS --> {loss}")
 
     #################################################################
     ## FIXME: bipartie_matching between top-k #######################
@@ -922,8 +904,6 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
 
     src_arr, src_map = __norm_weights(graph_src)
     dst_arr, dst_map = __norm_weights(graph_dst)
-
-    remap = {}
 
     n, m = len(src_arr), len(dst_arr)
     scores = np.zeros((n, m))
@@ -975,6 +955,34 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         y_hat = model.predict(q_arr)
         scores[:, dst_j] *= y_hat
 
+    return scores, src_arr, dst_arr
+
+
+def transfer(model_src, model_dst=None, teacher=None, inject=True, debug=False):
+    # FIXME: replace str to model if needed
+    if model_src and model_dst:
+        # API: v2
+        print("API: V2")
+        pass
+    elif not model_dst and teacher:
+        # API: v1
+        print("API: V1")
+        model_src, model_dst = teacher, model_src
+    else:
+        raise Exception("where is teacher?! is this a joke?")
+
+    graph_src = get_graph(model_src)
+    graph_dst = get_graph(model_dst)
+
+    if debug:
+        show_graph(graph_src, ver=3, path="__tli_src")
+        show_graph(graph_dst, ver=3, path="__tli_dst")
+
+    scores, src_arr, dst_arr = score_autoencoder(graph_src, graph_dst)
+
+    remap = {}
+    n, m = len(src_arr), len(dst_arr)
+
     ##############################################
 
     # for size in np.arange(0.10, 0.50, 0.10):
@@ -1025,7 +1033,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         node_dst = graph_dst.nodes[idx_dst]
 
         idx_src = remap[idx_dst]
-        score = scores[src_map[idx_src], j]  # src_i, dst_i
+        score = scores[src_arr.index(idx_src), j]  # src_i, dst_i
         all_scores.append(score)
 
         name_src = graph_src.nodes[idx_src].name
@@ -1048,7 +1056,6 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     sim = max(0, min(1, np.mean(all_scores)))
 
     print("=== MATCH =================")
-    print(f" LOSS --> {loss}")
     n = len(graph_src.nodes.keys())
     print(f"  SIM --> \x1b[0;34;40m{round(sim, 4)}\x1b[0m")
     print(f" SEEN --> {len(seen):5} / {n:5} | {round(len(seen)/n,2)}")
@@ -1066,20 +1073,21 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         # FIXME: do pracy dodac rysunek z sieci typu "debug"
         show_remap(graph_src, graph_dst, remap, path="__tli_remap")
 
-    # p_src_ref = {}
-    # for name, param in model_src.named_parameters():
-    #     p_src_ref[name] = param
-    # p_dst_ref = {}
-    # for name, param in model_dst.named_parameters():
-    #     p_dst_ref[name] = param
+    if inject:
+        p_src_ref = {}
+        for name, param in model_src.named_parameters():
+            p_src_ref[name] = param
+        p_dst_ref = {}
+        for name, param in model_dst.named_parameters():
+            p_dst_ref[name] = param
 
-    # with torch.no_grad():
-    #     for idx_dst, idx_src in remap.items():
-    #         node_src = graph_src.nodes[idx_src]
-    #         node_dst = graph_dst.nodes[idx_dst]
-    #         p_src = p_src_ref[node_src.name]
-    #         p_dst = p_dst_ref[node_dst.name]
-    #         fn_inject(p_src, p_dst)
+        with torch.no_grad():
+            for idx_dst, idx_src in remap.items():
+                node_src = graph_src.nodes[idx_src]
+                node_dst = graph_dst.nodes[idx_dst]
+                p_src = p_src_ref[node_src.name]
+                p_dst = p_dst_ref[node_dst.name]
+                fn_inject(p_src, p_dst)
 
     return sim, remap, graph_src, graph_dst
 
@@ -1521,7 +1529,9 @@ if __name__ == "__main__":
         show_graph(model_debug_small, ver=3, path="__tli_figure_1_graph")
 
         transfer(model_debug_small, model_debug_large, debug=True)
-        sys.exit()
+
+        show_graph(model_unet, ver=1, path="__tli_figure_unet")
+        # sys.exit()
 
     if False:  # 8, 11, 9
         model_A = get_model_timm("efficientnet_lite1")
