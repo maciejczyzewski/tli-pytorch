@@ -14,11 +14,16 @@ PATH_IMAGENET = "results-imagenet.csv"
 class Net(nn.Module):
     def __init__(self, classes=None, channels=None, hidden=50, _fixme=None):
         super(Net, self).__init__()
+        self.hidden = hidden
         self.conv1 = nn.Conv2d(channels, 10, kernel_size=5)
         self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
         self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(_fixme, hidden)
-        self.fc2 = nn.Linear(hidden, classes)
+        self.fc1 = nn.Linear(_fixme, self.hidden)
+        self.fc2 = nn.Linear(self.hidden, classes)
+
+        if self.hidden % 2 == 0:
+            self.fc_branch_1 = nn.Linear(self.hidden, self.hidden, bias=False)
+            self.fc_branch_2 = nn.Linear(self.hidden, self.hidden, bias=False)
 
     def forward(self, x):
         if len(x.shape) == 3:
@@ -27,6 +32,11 @@ class Net(nn.Module):
         x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
+        if self.hidden % 2 == 0:
+            x_shortcut = x.clone()
+            x = self.fc_branch_1(x)
+            x_shortcut = self.fc_branch_2(x_shortcut)
+            x = x + x_shortcut
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
 

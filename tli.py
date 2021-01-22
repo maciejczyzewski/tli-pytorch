@@ -811,9 +811,11 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     # FIXME: replace str to model if needed
     if model_src and model_dst:
         # API: v2
+        print("API: V2")
         pass
     elif not model_dst and teacher:
         # API: v1
+        print("API: V1")
         model_src, model_dst = teacher, model_src
     else:
         raise Exception("where is teacher?! is this a joke?")
@@ -848,7 +850,7 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
     _l1 = len(graph_dst.nodes.keys())
     _l2 = len(graph_dst.cluster_map.keys())
     # print(_l2, _l1)
-    mfa = Isomap(n_components=30, n_neighbors=50, p=3) # 30 best
+    mfa = Isomap(n_components=min(_l1//2, 30), n_neighbors=min(_l1//10, 50), p=3) # 30 best
     _vec = mlb.transform(vec)
     mfa.fit(_vec)
 
@@ -1004,11 +1006,21 @@ def transfer(model_src, model_dst=None, teacher=None, debug=False):
         if idx_dst not in remap:
             remap[idx_dst] = src_arr[i]
 
+    window_size = 1
+    for _dst_j, idx_dst in enumerate(dst_arr[::-1]):
+        dst_j = m - _dst_j - 1
+        ith = dst_j / m
+        shift = max(int(ith*n - window_size*n), 0)
+        i = np.argmax(smap[shift:, dst_j])+shift
+        if idx_dst not in remap:
+            remap[idx_dst] = src_arr[i]
+
     ##############################################
 
     seen = set()
     all_scores = []
     error_n, error_sum = 0, 0
+    print(" "*45 + "[[src]]" + " "*30 + "[[dst]]")
     for j, idx_dst in enumerate(dst_arr):
         node_dst = graph_dst.nodes[idx_dst]
 
@@ -1198,7 +1210,8 @@ def make_graph(var, params=None) -> Graph:
             visited, queue = set(), collections.deque([graph])
             for idx_root in _rev_edges:
                 # print(f"----> root {nodes[idx_root].name:50} {len(_rev_edges[idx_root])}")
-                if len(_rev_edges[idx_root]) >= degree:
+                if len(_rev_edges[idx_root]) >= degree \
+                        and nodes[idx_root].type != "W": # FIXME: bug?
                     # print("\t[MATCH]")
                     nodes[idx_root].type = "OP"
             while queue:
@@ -1442,7 +1455,7 @@ def show_graph(model, ver=0, path="__tli_debug", input=None):
     print("saved to file")
 
 
-def show_remap(g1, g2, remap, path="__tli_debug"):
+def show_remap(g1, g2, remap, path="__tli_debug", for_edges = False):
     # FIXME: colors? for each cluster?
     # FIXME: show as matrix? A: top-down B: left-right
     dot_g1 = make_dot(g1, ver=3, prefix="src", rankdir="TB")
@@ -1463,12 +1476,21 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
     import matplotlib.pyplot as plt
 
     cmap = plt.get_cmap("gist_rainbow")
-    colors = cmap(np.linspace(0, 1, len(g1.cluster_map.keys())))
+    if not for_edges:
+        arr = g1.cluster_map.keys()
+    else:
+        arr = range(len(remap.keys()))
+
+    colors = cmap(np.linspace(0, 1, len(arr)))
     colors_map = {}  # FIXME: sorted?
-    for (cluster_idx, color) in zip(g1.cluster_map.keys(), colors):
-        colors_map[cluster_idx] = color
-    for idx_dst, idx_src in remap.items():
-        color = colors_map[g1.nodes[idx_src].cluster_idx]
+    for (i, color) in zip(arr, colors):
+        colors_map[i] = color
+
+    for i, (idx_dst, idx_src) in enumerate(remap.items()):
+        if not for_edges:
+            color = colors_map[g1.nodes[idx_src].cluster_idx]
+        else:
+            color = colors_map[i]
         dot.edge(
             "src" + str(idx_src),
             "dst" + str(idx_dst),
@@ -1488,11 +1510,18 @@ def show_remap(g1, g2, remap, path="__tli_debug"):
 ################################################################################
 
 if __name__ == "__main__":
-    if False:
+    if True:
         from research_models import get_model_debug, ResNetUNet
 
-        model_debug = get_model_debug(seed=3, channels=3, classes=10)
+        model_debug_small = get_model_debug(seed=42, channels=3, classes=10)
+        model_debug_large = get_model_debug(seed=3, channels=3, classes=10)
         model_unet = ResNetUNet(n_class=6)
+
+        show_graph(model_debug_small, ver=0, path="__tli_figure_1_all")
+        show_graph(model_debug_small, ver=3, path="__tli_figure_1_graph")
+
+        transfer(model_debug_small, model_debug_large, debug=True)
+        sys.exit()
 
     if False:  # 8, 11, 9
         model_A = get_model_timm("efficientnet_lite1")
@@ -1502,7 +1531,7 @@ if __name__ == "__main__":
         model_A = get_model_timm("efficientnet_lite1")
         model_B = get_model_timm("efficientnet_lite0")
 
-    if False:  # 47, 53, 49, 45, 47, 45
+    if True:  # 47, 53, 49, 45, 47, 45
         model_A = get_model_timm("efficientnet_lite0")
         model_B = get_model_timm("efficientnet_lite1")
 
@@ -1518,7 +1547,7 @@ if __name__ == "__main__":
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_s")
 
-    if True:  # [83, 77, 85, 78] 82
+    if False:  # [83, 77, 85, 78] 82
         model_A = get_model_timm("mixnet_s")
         model_B = get_model_timm("mixnet_m")
 
